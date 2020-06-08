@@ -1,0 +1,11 @@
+[package]
+name = "bedroxide"
+version = "0.1.0"
+authors = ["Göran Zachrisson <g.zachrisson@gmail.com>"]
+edition = "2018"
+license = "MIT"
+description = "A Minecraft Bedrock server written in Rust"
+readme = "README.md"
+repository = "https://github.com/gzachrisson/bedroxide"
+
+[dependencies]
