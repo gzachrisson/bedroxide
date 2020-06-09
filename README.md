@@ -1,5 +1,7 @@
 # Bedroxide
 
+![GitHub Workflow Status](https://img.shields.io/github/workflow/status/gzachrisson/bedroxide/Rust)
+
 ## What is Bedroxide?
 
 Bedroxide is intended to eventually become a basic Minecraft Bedrock server written in Rust.
