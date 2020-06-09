@@ -13,3 +13,5 @@ I have been interested in learning Rust for some time and since I couldn't find 
 ## Can I help?
 
 Pull requests are more than welcome!
+
+Look at the [Getting Started](https://github.com/gzachrisson/bedroxide/wiki/Getting-Started) wiki page to get up and running.
