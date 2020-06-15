@@ -1,14 +1,13 @@
-use async_std::io;
 use async_std::net::UdpSocket;
 use async_std::task;
-use log::{info, debug};
+use log::{info, error, debug};
 use simplelog::*;
 use std::fs::File;
 use std::io::{Write, Read, Cursor};
 use rand;
 use std::convert::TryInto;
 
-fn main() -> io::Result<()> {
+fn main() -> Result<(), RakNetError> {
     CombinedLogger::init(
         vec![
             SimpleLogger::new(LevelFilter::Debug, Config::default()),
@@ -19,73 +18,105 @@ fn main() -> io::Result<()> {
     task::block_on(run_server(19132))
 }
 
+#[derive(Debug)]
+enum RakNetError {
+    IoError(std::io::Error),
+    TooFewBytesWritten(usize),
+    TooFewBytesRead(usize)
+}
+
+impl From<std::io::Error> for RakNetError {
+    fn from(error: std::io::Error) -> Self {
+        RakNetError::IoError(error)
+    }
+}
+
 trait RakNetWrite {
-    fn write_byte(&mut self, b: u8) -> Result<usize, std::io::Error>;
-    fn write_bytes(&mut self, b: &[u8]) -> Result<usize, std::io::Error>;
-    fn write_unsigned_short_be(&mut self, b: u16) -> Result<usize, std::io::Error>;
-    fn write_unsigned_long(&mut self, l: u64) -> Result<usize, std::io::Error>;
-    fn write_string(&mut self, s: &str) -> Result<usize, std::io::Error>;
+    fn write_byte(&mut self, b: u8) -> Result<usize, RakNetError>;
+    fn write_bytes(&mut self, b: &[u8]) -> Result<usize, RakNetError>;
+    fn write_unsigned_short_be(&mut self, b: u16) -> Result<usize, RakNetError>;
+    fn write_unsigned_long(&mut self, l: u64) -> Result<usize, RakNetError>;
+    fn write_string(&mut self, s: &str) -> Result<usize, RakNetError>;
 }
 
 impl<T> RakNetWrite for T where T: Write {
-    fn write_byte(&mut self, b: u8) -> Result<usize, std::io::Error> {
-        self.write(&[b])
+    fn write_byte(&mut self, b: u8) -> Result<usize, RakNetError> {
+        let n = self.write(&[b])?;
+        if n != 1 {
+            return Err(RakNetError::TooFewBytesWritten(n))
+        }
+        Ok(n)
     }
 
-    fn write_bytes(&mut self, b: &[u8]) -> Result<usize, std::io::Error> {
-        self.write(b)
+    fn write_bytes(&mut self, b: &[u8]) -> Result<usize, RakNetError> {
+        let n = self.write(b)?;
+        if n != b.len() {
+            return Err(RakNetError::TooFewBytesWritten(n))
+        }
+        Ok(n)
     }
 
-    fn write_unsigned_short_be(&mut self, us: u16) -> Result<usize, std::io::Error> {
-        self.write(&us.to_be_bytes())
+    fn write_unsigned_short_be(&mut self, us: u16) -> Result<usize, RakNetError> {
+        let n = self.write(&us.to_be_bytes())?;
+        if n != 2 {
+            return Err(RakNetError::TooFewBytesWritten(n))
+        }
+        Ok(n)
     }
 
-    fn write_unsigned_long(&mut self, ul: u64) -> Result<usize, std::io::Error> {
-        self.write(&ul.to_le_bytes())
+    fn write_unsigned_long(&mut self, ul: u64) -> Result<usize, RakNetError> {
+        let n = self.write(&ul.to_le_bytes())?;
+        if n != 8 {
+            return Err(RakNetError::TooFewBytesWritten(n))
+        }
+        Ok(n)
     }
 
-    fn write_string(&mut self, s: &str) -> std::result::Result<usize, std::io::Error> {
-        let mut length = self.write_unsigned_short_be(s.len() as u16)?;
-        length += self.write(s.as_ref())?;
-        Ok(length)
+    fn write_string(&mut self, s: &str) -> std::result::Result<usize, RakNetError> {
+        let mut n = self.write_unsigned_short_be(s.len() as u16)?;
+        n += self.write(s.as_ref())?;
+        if n != 2 + s.len() {
+            return Err(RakNetError::TooFewBytesWritten(n))
+        }
+        Ok(n)
     }
 }
 
 trait RakNetRead {
-    fn read_byte(&mut self) -> Result<u8, std::io::Error>;
-    fn read_bytes(&mut self, buf: &mut [u8]) -> Result<(), std::io::Error>;
-    fn read_unsigned_long(&mut self) -> Result<u64, std::io::Error>;
+    fn read_byte(&mut self) -> Result<u8, RakNetError>;
+    fn read_bytes(&mut self, buf: &mut [u8]) -> Result<(), RakNetError>;
+    fn read_unsigned_long(&mut self) -> Result<u64, RakNetError>;
 }
 
 impl<T> RakNetRead for T where T: Read {
-    fn read_byte(&mut self) -> std::result::Result<u8, std::io::Error> {
+    fn read_byte(&mut self) -> Result<u8, RakNetError> {
         let mut buf = vec![0u8; 1];
         let n = self.read(&mut buf)?;
         if n != 1 {
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Invalid byte"));
+            return Err(RakNetError::TooFewBytesRead(n))
         }
         Ok(u8::from_le_bytes(buf[0..1].try_into().unwrap()))
     }
 
-    fn read_bytes(&mut self, buf: &mut [u8]) -> Result<(), std::io::Error> {
+    fn read_bytes(&mut self, buf: &mut [u8]) -> Result<(), RakNetError> {
         let n = self.read(buf)?;
         if n != buf.len() {
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Could not read enough bytes"));
+            return Err(RakNetError::TooFewBytesRead(n))
         }
         Ok(())
     }
 
-    fn read_unsigned_long(&mut self) -> std::result::Result<u64, std::io::Error> {
+    fn read_unsigned_long(&mut self) -> std::result::Result<u64, RakNetError> {
         let mut buf = vec![0u8; 8];
         let n = self.read(&mut buf)?;
         if n != 8 {
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Invalid unsigned long"));
+            return Err(RakNetError::TooFewBytesRead(n))
         }
         Ok(u64::from_le_bytes(buf[0..8].try_into().unwrap()))
     }
 }
 
-async fn run_server(port: u16) -> Result<(), std::io::Error> {    
+async fn run_server(port: u16) -> Result<(), RakNetError> {    
     info!("Bedroxide server starting...");
     let inaddr_any = "0.0.0.0";
     let socket = UdpSocket::bind((inaddr_any, port)).await?;
@@ -99,6 +130,10 @@ async fn run_server(port: u16) -> Result<(), std::io::Error> {
 
     loop {
         let (n, peer) = socket.recv_from(&mut buf).await?;
+        if n == 0 {
+            error!("Received 0 byte package from {}", peer);
+            continue;
+        }
         debug!("Received {} bytes from {}: {}", n, peer, to_hex(&buf, n.min(40)));
         let mut reader = Cursor::new(&buf);
         let packet_id = reader.read_byte()?;
