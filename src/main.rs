@@ -1,3 +1,4 @@
+use std::convert::TryFrom;
 use async_std::net::SocketAddr;
 use async_std::net::UdpSocket;
 use async_std::task;
@@ -81,6 +82,31 @@ impl RakNetMessageWrite for UnconnectedPongMessage {
     }
 }
 
+struct OpenConnectionRequest1Message {
+    pub protocol_version: u8,
+    pub mtu: u16
+}
+
+impl RakNetMessageRead for OpenConnectionRequest1Message {
+    fn read_message(reader: &mut dyn RakNetRead) -> Result<Self, RakNetError> {
+        reader.read_bytes(&mut [0u8; 16])?; // Offline Message ID = 00ffff00fefefefefdfdfdfd12345678
+        let protocol_version = reader.read_byte()?;
+        let mtu = reader.read_zero_padding()?;
+        Ok(OpenConnectionRequest1Message { protocol_version, mtu })
+    }
+}
+
+impl RakNetMessageWrite for OpenConnectionRequest1Message {
+    fn message_id(&self) -> u8 { 0x05 }
+
+    fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<(), RakNetError> {
+        writer.write_bytes(&[0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78])?; // Offline Message ID
+        writer.write_byte(self.protocol_version)?;
+        writer.write_zero_padding(self.mtu)?;
+        Ok(())      
+    }
+}
+
 #[derive(Debug)]
 enum RakNetError {
     IoError(std::io::Error),
@@ -108,6 +134,7 @@ trait RakNetWrite {
     fn write_unsigned_long(&mut self, ul: u64) -> Result<usize, RakNetError>;
     fn write_unsigned_long_be(&mut self, ul: u64) -> Result<usize, RakNetError>;
     fn write_fixed_string(&mut self, s: &str) -> Result<usize, RakNetError>;
+    fn write_zero_padding(&mut self, mtu: u16) -> Result<usize, RakNetError>;
 }
 
 impl<T> RakNetWrite for T where T: Write {
@@ -159,6 +186,16 @@ impl<T> RakNetWrite for T where T: Write {
         }
         Ok(n)
     }
+
+    fn write_zero_padding(&mut self, mtu: u16) -> Result<usize, RakNetError> {
+        for i in 0..mtu {
+            let n = self.write(&[0x00])?;
+            if n != 1 {
+                return Err(RakNetError::TooFewBytesWritten(i as usize + n))
+            }    
+        }
+        Ok(mtu as usize)
+    }
 }
 
 trait RakNetRead {
@@ -168,6 +205,7 @@ trait RakNetRead {
     fn read_unsigned_long(&mut self) -> Result<u64, RakNetError>;
     fn read_unsigned_long_be(&mut self) -> Result<u64, RakNetError>;
     fn read_fixed_string(&mut self) -> Result<String, RakNetError>;
+    fn read_zero_padding(&mut self) -> Result<u16, RakNetError>;
 }
 
 impl<T> RakNetRead for T where T: Read {
@@ -225,6 +263,19 @@ impl<T> RakNetRead for T where T: Read {
         let s = String::from_utf8(buf)?;
         Ok(s)
     }
+
+    fn read_zero_padding(&mut self) -> Result<u16, RakNetError> {
+        let mut mtu = 0u16;
+        let mut buf = vec![0u8; 1];
+        loop {
+            let n = self.read(&mut buf)?;
+            if n == 0 {
+                break;
+            }            
+            mtu += u16::try_from(n).unwrap(); // n should never be larger than buffer size (=1)
+        }
+        Ok(mtu)
+    }
 }
 
 async fn run_server(port: u16) -> Result<(), RakNetError> {    
@@ -249,15 +300,27 @@ async fn run_server(port: u16) -> Result<(), RakNetError> {
         let mut reader = Cursor::new(&buf);
         let message_id = reader.read_byte()?;
 
-        // Unconnected Ping
-        if message_id == 0x01 {
-            let ping = UnconnectedPingMessage::read_message(&mut reader)?;
-            debug!("  Received Unconnected Ping: time={}, client_guid={}", ping.time, ping.client_guid);
-
-            // Send Unconnected Pong
-            let pong = UnconnectedPongMessage { time: ping.time, server_guid, motd: motd.to_string() };
-            send_message(&socket, &pong, peer).await?;
-            debug!("  Sent Unconnected Pong");
+        match message_id {
+            // Unconnected Ping        
+            0x01 => {
+                let ping = UnconnectedPingMessage::read_message(&mut reader)?;
+                debug!("  Received Unconnected Ping: time={}, client_guid={}", ping.time, ping.client_guid);
+    
+                // Send Unconnected Pong
+                let pong = UnconnectedPongMessage { time: ping.time, server_guid, motd: motd.to_string() };
+                send_message(&socket, &pong, peer).await?;
+                debug!("  Sent Unconnected Pong");
+            },
+            
+            // Open Connection Request 1
+            0x05 => {
+                let request = OpenConnectionRequest1Message::read_message(&mut reader)?;
+                debug!("  Received Open Connection Request 1: protocol_version={}, mtu={}", request.protocol_version, request.mtu);
+            },
+            
+            _ => {
+                debug!("  Received unknown message ID: {}", message_id);
+            }
         }
     }
 }
