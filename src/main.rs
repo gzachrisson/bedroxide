@@ -1,11 +1,11 @@
 use std::{
+    io::{self},
     fs::File,
     net::SocketAddr,
 };
-
-use async_std::task;
 use simplelog::*;
-use net::raknet::{RakNetError, RakNetServer};
+use net::raknet::{RakNetError, RakNetPeer};
+use log::{info};
 
 pub mod net;
 
@@ -17,12 +17,19 @@ fn main() -> Result<(), RakNetError> {
         ]
     ).unwrap();
 
-    task::block_on(run_server())
+    run_server()
 }
 
-async fn run_server() -> Result<(), RakNetError> {
+fn run_server() -> Result<(), RakNetError> {
     let addr = SocketAddr::from(([0, 0, 0, 0], 19132));
-    let mut server = RakNetServer::bind(addr).await?;
-    server.run().await?;
+    let mut peer = RakNetPeer::bind(addr)?;
+    let _thread = std::thread::spawn(move || peer.run());
+
+    // Wait for ENTER to kill server
+    let mut buffer = String::new();
+    io::stdin().read_line(&mut buffer)?;
+    
+    info!("Shutting down server");
+
     Ok(())
 }

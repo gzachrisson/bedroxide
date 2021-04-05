@@ -4,7 +4,7 @@ use std::{
     net::{SocketAddr},
 };
 
-use async_std::net::{UdpSocket, ToSocketAddrs};
+use std::net::{UdpSocket, ToSocketAddrs};
 use log::{info, error, debug};
 use rand;
 
@@ -16,34 +16,34 @@ pub enum RakNetError {
     StringParseError(std::string::FromUtf8Error)
 }
 
-pub struct RakNetServer
+pub struct RakNetPeer
 {
     socket: UdpSocket,
 }
 
-impl RakNetServer {
-    pub async fn bind<A: ToSocketAddrs>(addr: A) -> Result<Self, RakNetError> {
+impl RakNetPeer {
+    pub fn bind<A: ToSocketAddrs>(addr: A) -> Result<Self, RakNetError> {
         info!("Binding socket");
-        let socket = UdpSocket::bind(addr).await?;
+        let socket = UdpSocket::bind(addr)?;
         socket.set_broadcast(true)?;
         info!("Listening on {}", socket.local_addr()?);
         
-        Ok(RakNetServer { socket })
+        Ok(RakNetPeer { socket })
     }
 
-    pub async fn run(&mut self) -> Result<(), RakNetError> {    
+    pub fn run(&mut self) -> Result<(), RakNetError> {    
         let mut buf = vec![0u8; 2048];
         let motd = "MCPE;Bedroxide server;390;1.14.60;5;10;13253860892328930977;Second row;Survival;1;19132;19133;";
         let server_guid: u64 = rand::random();  
     
         loop {
             // TODO: Handle OS error when package is too large to fit receive
-            let (n, peer) = self.socket.recv_from(&mut buf).await?;
+            let (n, addr) = self.socket.recv_from(&mut buf)?;
             if n == 0 {
-                error!("Received 0 byte message from {}", peer);
+                error!("Received 0 byte message from {}", addr);
                 continue;
             }
-            debug!("Received {} bytes from {}: {}", n, peer, Self::to_hex(&buf, n.min(40)));
+            debug!("Received {} bytes from {}: {}", n, addr, Self::to_hex(&buf, n.min(40)));
             let mut reader = Cursor::new(&buf);
             let message_id = reader.read_byte()?;
     
@@ -55,7 +55,7 @@ impl RakNetServer {
         
                     // Send Unconnected Pong
                     let pong = UnconnectedPongMessage { time: ping.time, server_guid, motd: motd.to_string() };
-                    self.send_message(&pong, peer).await?;
+                    self.send_message(&pong, addr)?;
                     debug!("  Sent Unconnected Pong");
                 },
                 
@@ -72,12 +72,12 @@ impl RakNetServer {
         }
     }
     
-    async fn send_message(&self, message: &dyn RakNetMessageWrite, peer: SocketAddr) -> Result<(), RakNetError> {
+    fn send_message(&self, message: &dyn RakNetMessageWrite, dest: SocketAddr) -> Result<(), RakNetError> {
         let mut send_buf = Vec::with_capacity(1024); // TODO: Allocate once
         send_buf.write_byte(message.message_id())?;
         message.write_message(&mut send_buf)?;
-        self.socket.send_to(&send_buf, peer).await?;
-        debug!("Sent {} bytes to {}: {}", send_buf.len(), peer, Self::to_hex(&send_buf, send_buf.len().min(40)));
+        self.socket.send_to(&send_buf, dest)?;
+        debug!("Sent {} bytes to {}: {}", send_buf.len(), dest, Self::to_hex(&send_buf, send_buf.len().min(40)));
         Ok(())
     }
     
