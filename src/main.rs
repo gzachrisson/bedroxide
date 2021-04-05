@@ -23,7 +23,9 @@ fn main() -> Result<(), RakNetError> {
 fn run_server() -> Result<(), RakNetError> {
     let addr = SocketAddr::from(([0, 0, 0, 0], 19132));
     let mut peer = RakNetPeer::bind(addr)?;
-    let _thread = std::thread::spawn(move || peer.run());
+    peer.set_unconnected_ping_response("MCPE;Bedroxide server;390;1.14.60;5;10;13253860892328930977;Second row;Survival;1;19132;19133;");
+    
+    let _thread = std::thread::spawn(move || peer.start_processing());
 
     // Wait for ENTER to kill server
     let mut buffer = String::new();
