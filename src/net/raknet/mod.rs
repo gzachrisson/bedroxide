@@ -194,7 +194,6 @@ trait RakNetWrite {
     fn write_byte(&mut self, b: u8) -> Result<usize, RakNetError>;
     fn write_bytes(&mut self, b: &[u8]) -> Result<usize, RakNetError>;
     fn write_unsigned_short_be(&mut self, us: u16) -> Result<usize, RakNetError>;
-    fn write_unsigned_long(&mut self, ul: u64) -> Result<usize, RakNetError>;
     fn write_unsigned_long_be(&mut self, ul: u64) -> Result<usize, RakNetError>;
     fn write_fixed_string(&mut self, s: &str) -> Result<usize, RakNetError>;
     fn write_zero_padding(&mut self, mtu: u16) -> Result<usize, RakNetError>;
@@ -220,14 +219,6 @@ impl<T> RakNetWrite for T where T: Write {
     fn write_unsigned_short_be(&mut self, us: u16) -> Result<usize, RakNetError> {
         let n = self.write(&us.to_be_bytes())?;
         if n != 2 {
-            return Err(RakNetError::TooFewBytesWritten(n))
-        }
-        Ok(n)
-    }
-
-    fn write_unsigned_long(&mut self, ul: u64) -> Result<usize, RakNetError> {
-        let n = self.write(&ul.to_le_bytes())?;
-        if n != 8 {
             return Err(RakNetError::TooFewBytesWritten(n))
         }
         Ok(n)
@@ -265,7 +256,6 @@ trait RakNetRead {
     fn read_byte(&mut self) -> Result<u8, RakNetError>;
     fn read_bytes(&mut self, buf: &mut [u8]) -> Result<(), RakNetError>;
     fn read_unsigned_short_be(&mut self) -> Result<u16, RakNetError>;
-    fn read_unsigned_long(&mut self) -> Result<u64, RakNetError>;
     fn read_unsigned_long_be(&mut self) -> Result<u64, RakNetError>;
     fn read_fixed_string(&mut self) -> Result<String, RakNetError>;
     fn read_zero_padding(&mut self) -> Result<u16, RakNetError>;
@@ -296,15 +286,6 @@ impl<T> RakNetRead for T where T: Read {
             return Err(RakNetError::TooFewBytesRead(n))
         }
         Ok(u16::from_be_bytes(buf[0..2].try_into().unwrap()))
-    }
-
-    fn read_unsigned_long(&mut self) -> Result<u64, RakNetError> {
-        let mut buf = vec![0u8; 8];
-        let n = self.read(&mut buf)?;
-        if n != 8 {
-            return Err(RakNetError::TooFewBytesRead(n))
-        }
-        Ok(u64::from_le_bytes(buf[0..8].try_into().unwrap()))
     }
 
     fn read_unsigned_long_be(&mut self) -> Result<u64, RakNetError> {
