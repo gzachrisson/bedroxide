@@ -1,0 +1,29 @@
+use core::convert::TryFrom;
+
+use super::RakNetError;
+
+#[derive(Copy, Clone, Debug)]
+pub enum MessageId {
+    UnconnectedPing = 0x01,
+    OpenConnectionRequest1 = 0x05,
+    UnconnectedPong = 0x1c,
+}
+
+impl From<MessageId> for u8 {
+    fn from(message_id: MessageId) -> u8 {
+        message_id as u8
+    }
+}
+
+impl TryFrom<u8> for MessageId {
+    type Error = RakNetError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0x01 => Ok(Self::UnconnectedPing),
+            0x05 => Ok(Self::OpenConnectionRequest1),
+            0x1c => Ok(Self::UnconnectedPong),
+            _ => Err(RakNetError::UnknownMessageId(value)),
+        }
+    }
+}

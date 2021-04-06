@@ -1,12 +1,14 @@
-use super::RakNetError;
 use std::{
     convert::{TryFrom, TryInto},
     io::Read,
 };
 
+use super::RakNetError;
+
 pub trait RakNetRead {
     fn read_byte(&mut self) -> Result<u8, RakNetError>;
     fn read_bytes(&mut self, buf: &mut [u8]) -> Result<(), RakNetError>;
+    fn ignore_bytes(&mut self, number_of_bytes: usize) -> Result<(), RakNetError>;
     fn read_unsigned_short_be(&mut self) -> Result<u16, RakNetError>;
     fn read_unsigned_long_be(&mut self) -> Result<u64, RakNetError>;
     fn read_fixed_string(&mut self) -> Result<String, RakNetError>;
@@ -25,6 +27,15 @@ impl<T> RakNetRead for T where T: Read {
 
     fn read_bytes(&mut self, buf: &mut [u8]) -> Result<(), RakNetError> {
         let n = self.read(buf)?;
+        if n != buf.len() {
+            return Err(RakNetError::TooFewBytesRead(n))
+        }
+        Ok(())
+    }
+
+    fn ignore_bytes(&mut self, number_of_bytes: usize) -> Result<(), RakNetError> {
+        let mut buf = vec![0u8; number_of_bytes];
+        let n = self.read(&mut buf)?;
         if n != buf.len() {
             return Err(RakNetError::TooFewBytesRead(n))
         }
@@ -75,5 +86,6 @@ impl<T> RakNetRead for T where T: Read {
 }
 
 pub trait RakNetMessageRead: Sized {
+    /// Reads a message excluding the message identifier.
     fn read_message(reader: &mut dyn RakNetRead) -> Result<Self, RakNetError>;
 }

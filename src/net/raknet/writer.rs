@@ -65,6 +65,6 @@ impl<T> RakNetWrite for T where T: Write {
 }
 
 pub trait RakNetMessageWrite {
-    fn message_id(&self) -> u8;
+    /// Writes a message including the message identifier.
     fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<(), RakNetError>;
 }

@@ -2,6 +2,7 @@ use std::{
     io::Cursor,
     net::{SocketAddr, UdpSocket, ToSocketAddrs},
     time::Duration,
+    convert::TryFrom,
 };
 use log::{info, error, debug};
 use rand;
@@ -9,9 +10,10 @@ use crossbeam_channel::{unbounded, Sender, Receiver, Select};
 
 use super::{
     RakNetError,
+    message_ids::MessageId,
     messages::{OpenConnectionRequest1Message, UnconnectedPingMessage, UnconnectedPongMessage},
     reader::{RakNetRead, RakNetMessageRead},
-    writer::{RakNetWrite, RakNetMessageWrite},
+    writer::{RakNetMessageWrite},
     utils,
 };
 
@@ -153,28 +155,32 @@ impl RakNetPeer {
     fn process_received_packet(&self, addr: SocketAddr, payload: &[u8]) -> Result<(), RakNetError>
     {
         let mut reader = Cursor::new(payload);
-        let message_id = reader.read_byte()?;
-
-        match message_id {
-            // Unconnected Ping        
-            0x01 => {
+        let first_byte = reader.read_byte()?;
+        match MessageId::try_from(first_byte) {
+            Ok(MessageId::UnconnectedPing) => {
                 let ping = UnconnectedPingMessage::read_message(&mut reader)?;
-                debug!("  Received Unconnected Ping: time={}, client_guid={}", ping.time, ping.client_guid);
+                debug!("Received Unconnected Ping: time={}, client_guid={}", ping.time, ping.client_guid);
     
-                // Send Unconnected Pong
                 let pong = UnconnectedPongMessage { time: ping.time, guid: self.guid, data: self.unconnected_ping_response.clone() };
                 self.send_message(&pong, addr)?;
-                debug!("  Sent Unconnected Pong");
+                debug!("Sent Unconnected Pong");
             },
             
-            // Open Connection Request 1
-            0x05 => {
+            Ok(MessageId::OpenConnectionRequest1) => {
                 let request = OpenConnectionRequest1Message::read_message(&mut reader)?;
-                debug!("  Received Open Connection Request 1: protocol_version={}, padding_length={}", request.protocol_version, request.padding_length);
+                debug!("Received Open Connection Request 1: protocol_version={}, padding_length={}", request.protocol_version, request.padding_length);
             },
             
-            _ => {
-                debug!("  Received unknown message ID: {}", message_id);
+            Ok(message_id) => {
+                debug!("Received unhandled message ID: {}", u8::from(message_id));
+            }
+
+            Err(RakNetError::UnknownMessageId(unknown_id)) => {
+                debug!("Received unknown message ID: {}", unknown_id);
+            }
+
+            Err(error) => {
+                debug!("Unexpected error: {:?}", error);
             }
         }
         Ok(())
@@ -182,7 +188,6 @@ impl RakNetPeer {
 
     fn send_message(&self, message: &dyn RakNetMessageWrite, dest: SocketAddr) -> Result<(), RakNetError> {
         let mut send_buf = Vec::with_capacity(1024); // TODO: Allocate once
-        send_buf.write_byte(message.message_id())?;
         message.write_message(&mut send_buf)?;
         self.socket.send_to(&send_buf, dest)?;
         debug!("Sent {} bytes to {}: {}", send_buf.len(), dest, utils::to_hex(&send_buf[..send_buf.len().min(40)]));
