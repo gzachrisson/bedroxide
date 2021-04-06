@@ -12,6 +12,7 @@ use super::{
     messages::{OpenConnectionRequest1Message, UnconnectedPingMessage, UnconnectedPongMessage},
     reader::{RakNetRead, RakNetMessageRead},
     writer::{RakNetWrite, RakNetMessageWrite},
+    utils,
 };
 
 pub struct RakNetPeer
@@ -77,17 +78,18 @@ impl RakNetPeer {
         {
             match self.socket.recv_from(self.receive_buffer.as_mut())
             {
-                Ok((n, addr)) => {
-                    if n == 0 {
-                        error!("Received 0 byte message from {}", addr);
-                        return true;
-                    }
-                    debug!("Received {} bytes from {}: {}", n, addr, Self::to_hex(&self.receive_buffer, n.min(40)));
+                Ok((received_length, addr)) => {
+                    if received_length > 0 {
+                        debug!("Received {} bytes from {}: {}", received_length, addr, utils::to_hex(&self.receive_buffer[..received_length.min(40)]));
 
-                    match self.process_received_packet(addr)
-                    {
-                        Ok(_) => {}
-                        Err(err) => error!("Error when processing received packet: {:?}", err),
+                        let payload = &self.receive_buffer[..received_length];
+                        match self.process_received_packet(addr, payload)
+                        {
+                            Ok(_) => {}
+                            Err(err) => error!("Error when processing received packet: {:?}", err),
+                        }
+                    } else {
+                        error!("Received 0 byte message from {}", addr);
                     }
                 }
                 Err(err) => {
@@ -148,9 +150,9 @@ impl RakNetPeer {
         self.command_sender.clone()
     }
 
-    fn process_received_packet(&mut self, addr: SocketAddr) -> Result<(), RakNetError>
+    fn process_received_packet(&self, addr: SocketAddr, payload: &[u8]) -> Result<(), RakNetError>
     {
-        let mut reader = Cursor::new(&self.receive_buffer);
+        let mut reader = Cursor::new(payload);
         let message_id = reader.read_byte()?;
 
         match message_id {
@@ -183,16 +185,7 @@ impl RakNetPeer {
         send_buf.write_byte(message.message_id())?;
         message.write_message(&mut send_buf)?;
         self.socket.send_to(&send_buf, dest)?;
-        debug!("Sent {} bytes to {}: {}", send_buf.len(), dest, Self::to_hex(&send_buf, send_buf.len().min(40)));
+        debug!("Sent {} bytes to {}: {}", send_buf.len(), dest, utils::to_hex(&send_buf[..send_buf.len().min(40)]));
         Ok(())
-    }
-    
-    fn to_hex(buf: &Vec<u8>, n: usize) -> String {
-        use std::fmt::Write;
-        let mut s = String::new();
-        for &byte in buf.iter().take(n) {
-            write!(&mut s, "{:02X} ", byte).expect("Unable to write");
-        }
-        return s;
-    }    
+    }   
 }

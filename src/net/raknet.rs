@@ -5,4 +5,5 @@ mod error;
 mod messages;
 mod peer;
 mod reader;
+mod utils;
 mod writer;
