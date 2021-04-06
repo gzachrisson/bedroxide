@@ -1,4 +1,4 @@
-pub use self::peer::RakNetPeer;
+pub use self::peer::{RakNetPeer, Command};
 pub use self::error::RakNetError;
 
 mod error;

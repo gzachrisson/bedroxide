@@ -11,5 +11,5 @@ repository = "https://github.com/gzachrisson/bedroxide"
 [dependencies]
 log = "0.4"
 simplelog = "0.8.0"
-async-std = "1.6.0"
+crossbeam-channel = "0.5"
 rand = "0.7"

@@ -1,11 +1,11 @@
 use std::{
     io::Cursor,
     net::{SocketAddr, UdpSocket, ToSocketAddrs},
-    thread,
     time::Duration,
 };
 use log::{info, error, debug};
 use rand;
+use crossbeam_channel::{unbounded, Sender, Receiver, Select};
 
 use super::{
     RakNetError,
@@ -20,6 +20,15 @@ pub struct RakNetPeer
     unconnected_ping_response: String,
     guid: u64,
     receive_buffer: Vec<u8>,
+    command_sender: Sender<Command>,
+    command_receiver: Receiver<Command>,
+}
+
+pub enum Command
+{
+    #[allow(dead_code)]
+    ProcessNow,
+    StopProcessing,
 }
 
 impl RakNetPeer {
@@ -32,11 +41,15 @@ impl RakNetPeer {
 
         info!("Listening on {}", socket.local_addr()?);
         
+        let (command_sender, command_receiver) = unbounded();
+
         Ok(RakNetPeer {
             socket,
             unconnected_ping_response: String::new(),
             guid: rand::random(),
             receive_buffer: vec![0u8; 2048],
+            command_sender,
+            command_receiver
         })
     }
 
@@ -50,6 +63,17 @@ impl RakNetPeer {
     /// events. For an automatic processing loop use `start_processing`
     /// or `start_processing_with_duration` instead.
     pub fn process(&mut self) -> bool {
+        // Process all received commands
+        loop
+        {
+            match self.command_receiver.try_recv()
+            {
+                Ok(Command::ProcessNow) => {}, // Processing already in progress
+                Ok(Command::StopProcessing) => return false,
+                Err(_) => break,
+            }
+        }
+
         // Process all incoming packets
         loop
         {
@@ -98,7 +122,14 @@ impl RakNetPeer {
             if !self.process() {
                 break;
             }
-            thread::sleep(sleep_time);
+
+            // Wait for sleep_time to pass or until a command arrives
+            let mut sel = Select::new();
+            sel.recv(&self.command_receiver);
+            match sel.ready_timeout(sleep_time)
+            {
+                _ => {}
+            }
         }
     }    
     
@@ -106,6 +137,17 @@ impl RakNetPeer {
     pub fn set_unconnected_ping_response(&mut self, unconnected_ping_response: &str)
     {
         self.unconnected_ping_response = unconnected_ping_response.to_string();
+    }
+
+    /// Gets a command sender that can be used for sending commands
+    /// to the processing thread once `start_processing` or
+    /// `start_processing_with_duration` has been called.
+    ///
+    /// Use the command sender to stop the processing or
+    /// to force processing to occur now.
+    pub fn get_command_sender(&self) -> Sender<Command>
+    {
+        self.command_sender.clone()
     }
 
     fn process_received_packet(&mut self, addr: SocketAddr) -> Result<(), RakNetError>
