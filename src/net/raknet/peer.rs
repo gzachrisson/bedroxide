@@ -64,13 +64,11 @@ impl RakNetPeer {
     /// or `start_processing_with_duration` instead.
     pub fn process(&mut self) -> bool {
         // Process all received commands
-        loop
-        {
-            match self.command_receiver.try_recv()
+        while let Ok(command) = self.command_receiver.try_recv() {
+            match command
             {
-                Ok(Command::ProcessNow) => {}, // Processing already in progress
-                Ok(Command::StopProcessing) => return false,
-                Err(_) => break,
+                Command::ProcessNow => {}, // Processing already in progress
+                Command::StopProcessing => return false,
             }
         }
 
