@@ -1,13 +1,10 @@
-use std::{
-    io::{self},
-    fs::File,
-    net::SocketAddr,
-};
-use simplelog::*;
-use net::raknet::{RakNetError, RakNetPeer};
+use std::{io, fs::File, net::SocketAddr};
+use simplelog::{SimpleLogger, WriteLogger, LevelFilter, Config, CombinedLogger};
 use log::{info};
 
-pub mod net;
+use self::net::raknet::{RakNetError, RakNetPeer};
+
+mod net;
 
 fn main() -> Result<(), RakNetError> {
     CombinedLogger::init(
