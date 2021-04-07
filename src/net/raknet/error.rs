@@ -9,6 +9,7 @@ pub enum RakNetError {
     TooFewBytesRead(usize),
     StringParseError(std::string::FromUtf8Error),
     UnknownMessageId(u8),
+    InvalidData,
     CommandError(String)
 }
 

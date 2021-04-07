@@ -14,8 +14,9 @@ pub struct UnconnectedPingMessage {
 
 impl RakNetMessageRead for UnconnectedPingMessage {
     fn read_message(reader: &mut dyn RakNetRead) -> Result<Self, RakNetError> {
+        reader.read_byte_and_compare(MessageId::UnconnectedPing.into())?;
         let time = reader.read_unsigned_long_be()?;
-        reader.ignore_bytes(OFFLINE_MESSAGE_ID.len())?;
+        reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID)?;
         let client_guid = reader.read_unsigned_long_be()?;
         Ok(UnconnectedPingMessage { time, client_guid })
     }
@@ -39,9 +40,10 @@ pub struct UnconnectedPongMessage {
 
 impl RakNetMessageRead for UnconnectedPongMessage {
     fn read_message(reader: &mut dyn RakNetRead) -> Result<Self, RakNetError> {
+        reader.read_byte_and_compare(MessageId::UnconnectedPong.into())?;
         let time = reader.read_unsigned_long_be()?;
         let guid = reader.read_unsigned_long_be()?;
-        reader.ignore_bytes(OFFLINE_MESSAGE_ID.len())?;
+        reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID)?;
         let data = reader.read_fixed_string()?;
         Ok(UnconnectedPongMessage { time, guid, data })
     }
@@ -65,7 +67,8 @@ pub struct OpenConnectionRequest1Message {
 
 impl RakNetMessageRead for OpenConnectionRequest1Message {
     fn read_message(reader: &mut dyn RakNetRead) -> Result<Self, RakNetError> {
-        reader.ignore_bytes(OFFLINE_MESSAGE_ID.len())?;
+        reader.read_byte_and_compare(MessageId::OpenConnectionRequest1.into())?;
+        reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID)?;
         let protocol_version = reader.read_byte()?;
         let padding_length = reader.read_zero_padding()?;
         Ok(OpenConnectionRequest1Message { protocol_version, padding_length })

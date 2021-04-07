@@ -2,7 +2,6 @@ use std::{
     io::Cursor,
     net::{SocketAddr, UdpSocket, ToSocketAddrs},
     time::Duration,
-    convert::TryFrom,
 };
 use log::{info, error, debug};
 use rand;
@@ -10,9 +9,8 @@ use crossbeam_channel::{unbounded, Sender, Receiver, Select};
 
 use super::{
     RakNetError,
-    message_ids::MessageId,
     messages::{OpenConnectionRequest1Message, UnconnectedPingMessage, UnconnectedPongMessage},
-    reader::{RakNetRead, RakNetMessageRead},
+    reader::{RakNetMessageRead},
     writer::{RakNetMessageWrite},
     utils,
 };
@@ -153,36 +151,30 @@ impl RakNetPeer {
     }
 
     fn process_received_packet(&self, addr: SocketAddr, payload: &[u8]) -> Result<(), RakNetError>
-    {
+    {        
         let mut reader = Cursor::new(payload);
-        let first_byte = reader.read_byte()?;
-        match MessageId::try_from(first_byte) {
-            Ok(MessageId::UnconnectedPing) => {
-                let ping = UnconnectedPingMessage::read_message(&mut reader)?;
-                debug!("Received Unconnected Ping: time={}, client_guid={}", ping.time, ping.client_guid);
+        if let Ok(ping) = UnconnectedPingMessage::read_message(&mut reader) {
+            debug!("Received Unconnected Ping: time={}, client_guid={}", ping.time, ping.client_guid);
     
-                let pong = UnconnectedPongMessage { time: ping.time, guid: self.guid, data: self.unconnected_ping_response.clone() };
-                self.send_message(&pong, addr)?;
-                debug!("Sent Unconnected Pong");
-            },
-            
-            Ok(MessageId::OpenConnectionRequest1) => {
-                let request = OpenConnectionRequest1Message::read_message(&mut reader)?;
-                debug!("Received Open Connection Request 1: protocol_version={}, padding_length={}", request.protocol_version, request.padding_length);
-            },
-            
-            Ok(message_id) => {
-                debug!("Received unhandled message ID: {}", u8::from(message_id));
-            }
-
-            Err(RakNetError::UnknownMessageId(unknown_id)) => {
-                debug!("Received unknown message ID: {}", unknown_id);
-            }
-
-            Err(error) => {
-                debug!("Unexpected error: {:?}", error);
-            }
+            let pong = UnconnectedPongMessage { time: ping.time, guid: self.guid, data: self.unconnected_ping_response.clone() };
+            self.send_message(&pong, addr)?;
+            debug!("Sent Unconnected Pong");
+            return Ok(());
         }
+        
+        reader.set_position(0);
+        if let Ok(pong) = UnconnectedPongMessage::read_message(&mut reader) {
+            debug!("Received Unconnected Pong: time={}, guid={}, data={}", pong.time, pong.guid, pong.data);
+            return Ok(());
+        }
+
+        reader.set_position(0);
+        if let Ok(request1) = OpenConnectionRequest1Message::read_message(&mut reader) {
+            debug!("Received Open Connection Request 1: protocol_version={}, padding_length={}", request1.protocol_version, request1.padding_length);
+            return Ok(());
+        }
+         
+        debug!("Unhandled message ID: {}", payload[0]);        
         Ok(())
     }
 
