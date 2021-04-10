@@ -9,7 +9,6 @@ readme = "README.md"
 repository = "https://github.com/gzachrisson/bedroxide"
 
 [dependencies]
-crossbeam-channel = "0.5"
 log = "0.4"
 raknet = { path = "raknet" }
 simplelog = "0.8.0"

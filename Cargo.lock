@@ -10,7 +10,6 @@ checksum = "f8aac770f1885fd7e387acedd76065302551364496e46b3dd00860b2f8359b9d"
 name = "bedroxide"
 version = "0.1.0"
 dependencies = [
- "crossbeam-channel",
  "log",
  "raknet",
  "simplelog",
