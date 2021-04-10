@@ -20,7 +20,7 @@ fn main() -> Result<(), RakNetError> {
 fn run_server() -> Result<(), RakNetError> {
     let addr = SocketAddr::from(([0, 0, 0, 0], 19132));
     let mut peer = RakNetPeer::bind(addr)?;
-    peer.set_unconnected_ping_response("MCPE;Bedroxide server;390;1.14.60;5;10;13253860892328930977;Second row;Survival;1;19132;19133;");
+    peer.set_offline_ping_response("MCPE;Bedroxide server;390;1.14.60;5;10;13253860892328930977;Second row;Survival;1;19132;19133;");
     let command_sender = peer.get_command_sender();
 
     let processing_thread = thread::spawn(move || peer.start_processing());
