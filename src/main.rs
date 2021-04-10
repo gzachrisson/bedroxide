@@ -1,10 +1,7 @@
 use std::{io, fs::File, net::SocketAddr, thread};
 use simplelog::{SimpleLogger, WriteLogger, LevelFilter, Config, CombinedLogger};
 use log::{info, error};
-
-use self::net::raknet::{RakNetError, RakNetPeer, Command};
-
-mod net;
+use raknet::{RakNetError, RakNetPeer, Command};
 
 fn main() -> Result<(), RakNetError> {
     CombinedLogger::init(
