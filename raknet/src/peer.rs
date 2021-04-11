@@ -5,14 +5,15 @@ use std::{
 use log::{info};
 use crossbeam_channel::{unbounded, Sender, Receiver, Select};
 
-use super::{
+use crate::{
+    config::Config,
     connection_manager::ConnectionManager,
     RakNetError,
 };
 
 pub struct RakNetPeer
 {
-    connection_manager: ConnectionManager,
+    connection_manager: ConnectionManager<UdpSocket>,
     command_sender: Sender<Command>,
     command_receiver: Receiver<Command>,
 }
@@ -51,7 +52,7 @@ impl RakNetPeer {
 
         let (command_sender, command_receiver) = unbounded();
         Ok(RakNetPeer {
-            connection_manager: ConnectionManager::new(socket),
+            connection_manager: ConnectionManager::new(socket, Config::default()),
             command_sender,
             command_receiver,           
         })

@@ -1,35 +1,32 @@
 use std::{
     io::Cursor,
-    net::{SocketAddr, UdpSocket},
+    net::{SocketAddr},
 };
 
 use log::{error, debug};
-use rand;
 
-use super::{
-    RakNetError,
+use crate::{
+    config::Config,
     messages::{OpenConnectionRequest1Message, UnconnectedPingMessage, UnconnectedPongMessage},
+    RakNetError,
     reader::{RakNetMessageRead},
-    writer::{RakNetMessageWrite},
+    socket::DatagramSocket,
     utils,
+    writer::{RakNetMessageWrite},
 };
 
-pub struct ConnectionManager {
-    socket: UdpSocket,
-    ping_response: String,
-    guid: u64,
+pub struct ConnectionManager<T: DatagramSocket> {
+    socket: T,
+    config: Config,
     receive_buffer: Vec<u8>,
 }
 
-impl ConnectionManager {
-    pub fn new(socket: UdpSocket) -> Self {
-        let ping_response = String::new();
-        let guid = rand::random();
+impl<T: DatagramSocket> ConnectionManager<T> {
+    pub fn new(socket: T, config: Config) -> Self {
         let receive_buffer = vec![0u8; 2048];
         ConnectionManager {
             socket,
-            ping_response,
-            guid,
+            config,
             receive_buffer,
         }
     }
@@ -40,7 +37,7 @@ impl ConnectionManager {
     {
         let mut ping_response = ping_response;
         ping_response.truncate(399);
-        self.ping_response = ping_response;
+        self.config.ping_response = ping_response;
     }
 
     /// Sends and receives packages/events and updates connections.
@@ -48,12 +45,11 @@ impl ConnectionManager {
         // Process all incoming packets
         loop
         {
-            match self.socket.recv_from(self.receive_buffer.as_mut())
+            match self.socket.receive_datagram(self.receive_buffer.as_mut())
             {
-                Ok((received_length, addr)) => {
-                    debug!("Received {} bytes from {}: {}", received_length, addr, utils::to_hex(&self.receive_buffer[..received_length.min(40)]));
-                    let payload = self.receive_buffer[..received_length].as_ref();
-                    match self.process_offline_packet(addr, payload)
+                Ok((payload, addr)) => {
+                    debug!("Received {} bytes from {}: {}", payload.len(), addr, utils::to_hex(&payload[..payload.len().min(40)]));
+                    match Self::process_offline_packet(addr, payload, &mut self.socket, &self.config)
                     {
                         Ok(true) => continue,
                         Ok(false) => { 
@@ -72,23 +68,23 @@ impl ConnectionManager {
         }
     }
 
-    fn process_offline_packet(&self, addr: SocketAddr, payload: &[u8]) -> Result<bool, RakNetError>
+    fn process_offline_packet(addr: SocketAddr, payload: &[u8], socket: &mut T, config: &Config) -> Result<bool, RakNetError>
     {        
         let mut reader = Cursor::new(payload);
         if let Ok(ping) = UnconnectedPingMessage::read_message(&mut reader) {
-            self.handle_unconnected_ping_message(ping, addr)?;
+            Self::handle_unconnected_ping_message(ping, addr, socket, config)?;
             return Ok(true);
         }
         
         reader.set_position(0);
         if let Ok(pong) = UnconnectedPongMessage::read_message(&mut reader) {
-            self.handle_unconnected_pong_message(pong, addr)?;
+            Self::handle_unconnected_pong_message(pong)?;
             return Ok(true);
         }
 
         reader.set_position(0);
         if let Ok(request1) = OpenConnectionRequest1Message::read_message(&mut reader) {
-            self.handle_open_connection_request1_message(request1, addr)?;
+            Self::handle_open_connection_request1_message(request1)?;
             return Ok(true);
         }
          
@@ -96,31 +92,40 @@ impl ConnectionManager {
         Ok(false)
     }
 
-    fn handle_unconnected_ping_message(&self, ping: UnconnectedPingMessage, addr: SocketAddr) -> Result<(), RakNetError> {
+    fn handle_unconnected_ping_message(ping: UnconnectedPingMessage, addr: SocketAddr, socket: &mut T, config: &Config) -> Result<(), RakNetError> {
         debug!("Received Unconnected Ping: time={}, client_guid={}", ping.time, ping.client_guid);
-        let pong = UnconnectedPongMessage { time: ping.time, guid: self.guid, data: self.ping_response.clone() };
-        self.send_message(&pong, addr)?;
+        let pong = UnconnectedPongMessage { time: ping.time, guid: config.guid, data: config.ping_response.clone() };
+        Self::send_message(&pong, addr, socket)?;
         debug!("Sent Unconnected Pong");
         Ok(())
     }
 
-    fn handle_unconnected_pong_message(&self, pong: UnconnectedPongMessage, _addr: SocketAddr) -> Result<(), RakNetError> {
+    fn handle_unconnected_pong_message(pong: UnconnectedPongMessage) -> Result<(), RakNetError> {
         debug!("Received Unconnected Pong: time={}, guid={}, data={}", pong.time, pong.guid, pong.data);
         // TODO: Forward event to user
         Ok(())
     }
 
-    fn handle_open_connection_request1_message(&self, request1: OpenConnectionRequest1Message, _addr: SocketAddr) -> Result<(), RakNetError> {
+    fn handle_open_connection_request1_message(request1: OpenConnectionRequest1Message) -> Result<(), RakNetError> {
         debug!("Received Open Connection Request 1: protocol_version={}, padding_length={}", request1.protocol_version, request1.padding_length);
         // TODO: Send response
         Ok(())
     }
 
-    fn send_message(&self, message: &dyn RakNetMessageWrite, dest: SocketAddr) -> Result<(), RakNetError> {
-        let mut buf = Vec::new();
-        message.write_message(&mut buf)?;
-        self.socket.send_to(&buf, dest)?;
-        debug!("Sent {} bytes to {}: {}", buf.len(), dest, utils::to_hex(&buf[..buf.len().min(40)]));
+    fn send_message(message: &dyn RakNetMessageWrite, dest: SocketAddr, socket: &mut T) -> Result<(), RakNetError> {
+        let mut payload = Vec::new();
+        message.write_message(&mut payload)?;
+        socket.send_datagram(&payload, dest)?;
+        debug!("Sent {} bytes to {}: {}", payload.len(), dest, utils::to_hex(&payload[..payload.len().min(40)]));
         Ok(())
     }   
+}
+
+#[cfg(test)]
+mod tests {
+ 
+    #[test]
+    fn ping_responds_with_pong() {
+        
+    }
 }
