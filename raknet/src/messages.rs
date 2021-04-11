@@ -9,7 +9,7 @@ const OFFLINE_MESSAGE_ID: [u8; 16] = [0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 
 
 pub struct UnconnectedPingMessage {
     pub time: u64,
-    pub client_guid: u64
+    pub client_guid: u64,
 }
 
 impl RakNetMessageRead for UnconnectedPingMessage {
@@ -35,7 +35,7 @@ impl RakNetMessageWrite for UnconnectedPingMessage {
 pub struct UnconnectedPongMessage {
     pub time: u64,
     pub guid: u64,
-    pub data: String
+    pub data: Vec<u8>,
 }
 
 impl RakNetMessageRead for UnconnectedPongMessage {
@@ -44,7 +44,8 @@ impl RakNetMessageRead for UnconnectedPongMessage {
         let time = reader.read_unsigned_long_be()?;
         let guid = reader.read_unsigned_long_be()?;
         reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID)?;
-        let data = reader.read_fixed_string()?;
+        let mut data = Vec::new();
+        reader.read_bytes_to_end(&mut data)?;
         Ok(UnconnectedPongMessage { time, guid, data })
     }
 }
@@ -55,14 +56,14 @@ impl RakNetMessageWrite for UnconnectedPongMessage {
         writer.write_unsigned_long_be(self.time)?;
         writer.write_unsigned_long_be(self.guid)?;
         writer.write_bytes(&OFFLINE_MESSAGE_ID)?;
-        writer.write_fixed_string(&self.data)?;
+        writer.write_bytes(&self.data)?;
         Ok(())      
     }
 }
 
 pub struct OpenConnectionRequest1Message {
     pub protocol_version: u8,
-    pub padding_length: u16
+    pub padding_length: u16,
 }
 
 impl RakNetMessageRead for OpenConnectionRequest1Message {

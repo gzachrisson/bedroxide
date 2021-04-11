@@ -32,8 +32,8 @@ impl<T: DatagramSocket> ConnectionManager<T> {
     }
 
     /// Sets the response returned to an offline ping packet.
-    /// If the response is longer than 399 chars it will be truncated.
-    pub fn set_offline_ping_response(&mut self, ping_response: String) 
+    /// If the response is longer than 399 bytes it will be truncated.
+    pub fn set_offline_ping_response(&mut self, ping_response: Vec<u8>) 
     {
         let mut ping_response = ping_response;
         ping_response.truncate(399);
@@ -48,7 +48,7 @@ impl<T: DatagramSocket> ConnectionManager<T> {
             match self.socket.receive_datagram(self.receive_buffer.as_mut())
             {
                 Ok((payload, addr)) => {
-                    debug!("Received {} bytes from {}: {}", payload.len(), addr, utils::to_hex(&payload[..payload.len().min(40)]));
+                    debug!("Received {} bytes from {}: {}", payload.len(), addr, utils::to_hex(&payload, 40));
                     match Self::process_offline_packet(addr, payload, &mut self.socket, &self.config)
                     {
                         Ok(true) => continue,
@@ -101,7 +101,7 @@ impl<T: DatagramSocket> ConnectionManager<T> {
     }
 
     fn handle_unconnected_pong_message(pong: UnconnectedPongMessage) -> Result<(), RakNetError> {
-        debug!("Received Unconnected Pong: time={}, guid={}, data={}", pong.time, pong.guid, pong.data);
+        debug!("Received Unconnected Pong: time={}, guid={}, data={:?}", pong.time, pong.guid, utils::to_hex(&pong.data, 40));
         // TODO: Forward event to user
         Ok(())
     }
@@ -116,7 +116,7 @@ impl<T: DatagramSocket> ConnectionManager<T> {
         let mut payload = Vec::new();
         message.write_message(&mut payload)?;
         socket.send_datagram(&payload, dest)?;
-        debug!("Sent {} bytes to {}: {}", payload.len(), dest, utils::to_hex(&payload[..payload.len().min(40)]));
+        debug!("Sent {} bytes to {}: {}", payload.len(), dest, utils::to_hex(&payload, 40));
         Ok(())
     }   
 }
@@ -158,7 +158,7 @@ mod tests {
         let mut ping_buf = Vec::new();
         ping.write_message(&mut ping_buf).expect("Could not create message");
         datagram_sender.send((ping_buf, client_addr)).expect("Could not send datagram");
-        connection_manager.set_offline_ping_response(String::from("Ping Response"));
+        connection_manager.set_offline_ping_response(vec![0x00, 0x02, 0x41, 0x42]);
         
         // Act
         connection_manager.process();
@@ -170,6 +170,6 @@ mod tests {
         assert_eq!(client_addr, addr);
         assert_eq!(0x0123456789ABCDEF, pong.time);
         assert_eq!(0xFEDCBA9876453210, pong.guid);
-        assert_eq!(String::from("Ping Response"), pong.data);
+        assert_eq!(vec![0x00, 0x02, 0x41, 0x42], pong.data);
     }
 }

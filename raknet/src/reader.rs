@@ -9,6 +9,7 @@ pub trait RakNetRead {
     fn read_byte(&mut self) -> Result<u8, RakNetError>;
     fn read_byte_and_compare(&mut self, data: u8) -> Result<(), RakNetError>;
     fn read_bytes(&mut self, buf: &mut [u8]) -> Result<(), RakNetError>;
+    fn read_bytes_to_end(&mut self, buf: &mut Vec<u8>) -> Result<(), RakNetError>;
     fn read_bytes_and_compare(&mut self, data: &[u8]) -> Result<(), RakNetError>;
     fn read_unsigned_short_be(&mut self) -> Result<u16, RakNetError>;
     fn read_unsigned_long_be(&mut self) -> Result<u64, RakNetError>;
@@ -35,6 +36,12 @@ impl<T> RakNetRead for T where T: Read {
 
     fn read_bytes(&mut self, buf: &mut [u8]) -> Result<(), RakNetError> {
         self.read_exact(buf)?;
+        Ok(())
+    }
+
+    fn read_bytes_to_end(&mut self, buf: &mut Vec<u8>) -> Result<(), RakNetError> {        
+        buf.clear();
+        self.read_to_end(buf)?;
         Ok(())
     }
 

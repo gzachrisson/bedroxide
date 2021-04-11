@@ -1,7 +1,7 @@
 use std::{io, fs::File, net::SocketAddr, thread};
 use simplelog::{SimpleLogger, WriteLogger, LevelFilter, Config, CombinedLogger};
 use log::{info, error};
-use raknet::{RakNetError, RakNetPeer, Command};
+use raknet::{RakNetError, RakNetPeer, Command, RakNetWrite};
 
 fn main() -> Result<(), RakNetError> {
     CombinedLogger::init(
@@ -17,7 +17,9 @@ fn main() -> Result<(), RakNetError> {
 fn run_server() -> Result<(), RakNetError> {
     let addr = SocketAddr::from(([0, 0, 0, 0], 19132));
     let mut peer = RakNetPeer::bind(addr)?;
-    peer.set_offline_ping_response("MCPE;Bedroxide server;390;1.14.60;5;10;13253860892328930977;Second row;Survival;1;19132;19133;");
+    let mut ping_response = Vec::new();
+    ping_response.write_fixed_string("MCPE;Bedroxide server;390;1.14.60;5;10;13253860892328930977;Second row;Survival;1;19132;19133;").expect("Could not write ping response");
+    peer.set_offline_ping_response(ping_response);
     let command_sender = peer.get_command_sender();
 
     let processing_thread = thread::spawn(move || peer.start_processing());

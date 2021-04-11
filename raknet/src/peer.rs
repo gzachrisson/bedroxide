@@ -31,9 +31,9 @@ pub enum Command
     /// immediately.
     ProcessNow,
     /// Sets the response returned to an offline ping packet.
-    /// If the response is longer than 399 chars it will be truncated.
+    /// If the response is longer than 399 bytes it will be truncated.
     /// This does the same as the `set_offline_ping_response` method.
-    SetOfflinePingResponse(String),
+    SetOfflinePingResponse(Vec<u8>),
     /// Stops the processing loop.
     /// Use this to make `start_processing` and
     /// `start_processing_with_duration` return.
@@ -105,10 +105,10 @@ impl RakNetPeer {
     }    
     
     /// Sets the response returned to an offline ping packet.
-    /// If the response is longer than 399 chars it will be truncated.
-    pub fn set_offline_ping_response(&mut self, ping_response: &str)
+    /// If the response is longer than 399 bytes it will be truncated.
+    pub fn set_offline_ping_response(&mut self, ping_response: Vec<u8>)
     {
-        self.connection_manager.set_offline_ping_response(ping_response.to_string());
+        self.connection_manager.set_offline_ping_response(ping_response);
     }
 
     /// Gets a command sender that can be used for sending commands
