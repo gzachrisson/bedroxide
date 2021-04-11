@@ -63,10 +63,7 @@ impl<T> RakNetRead for T where T: Read {
     fn read_fixed_string(&mut self) -> Result<String, RakNetError> {
         let length: usize = self.read_unsigned_short_be()?.into();
         let mut buf = vec![0u8; length];
-        let n = self.read(&mut buf)?;
-        if n != length {
-            return Err(RakNetError::TooFewBytesRead(n))
-        }
+        self.read_exact(&mut buf)?;
         let s = String::from_utf8(buf)?;
         Ok(s)
     }

@@ -123,9 +123,53 @@ impl<T: DatagramSocket> ConnectionManager<T> {
 
 #[cfg(test)]
 mod tests {
- 
+    use std::{
+        io::Cursor,
+        net::{SocketAddr},
+    };   
+    use crossbeam_channel::{Sender, Receiver};
+    use crate::{
+        config::Config,
+        connection_manager::ConnectionManager,
+        messages::{UnconnectedPingMessage, UnconnectedPongMessage},
+        reader::RakNetMessageRead,
+        socket::FakeDatagramSocket,
+        writer::RakNetMessageWrite,
+    };
+
+    fn create_connection_manager() -> (ConnectionManager<FakeDatagramSocket>, Sender<(Vec<u8>, SocketAddr)>, Receiver<(Vec<u8>, SocketAddr)>) {
+        let fake_socket = FakeDatagramSocket::new();
+        let datagram_sender = fake_socket.get_datagram_sender();
+        let datagram_receiver = fake_socket.get_datagram_receiver();
+        let mut config = Config::default();
+        config.guid = 0xFEDCBA9876453210;
+        (ConnectionManager::new(fake_socket, config), datagram_sender, datagram_receiver)
+    }
+
     #[test]
     fn ping_responds_with_pong() {
+        // Arrange
+        let (mut connection_manager, datagram_sender, datagram_receiver) = create_connection_manager();
+        let client_addr = "127.0.0.1:19132".parse::<SocketAddr>().expect("Could not create address");
+        let ping = UnconnectedPingMessage {
+            time: 0x0123456789ABCDEF,
+            client_guid: 0x1122334455667788,
+        };
+        let mut ping_buf = Vec::new();
+        ping.write_message(&mut ping_buf).expect("Could not create message");
+        datagram_sender.send((ping_buf, client_addr)).expect("Could not send datagram");
+        connection_manager.set_offline_ping_response(String::from("Ping Response"));
         
+        // Act
+        connection_manager.process();
+
+        // Assert
+        let (payload, addr) = datagram_receiver.recv().expect("Datagram not received");
+        let mut reader = Cursor::new(payload);
+        let pong = UnconnectedPongMessage::read_message(&mut reader).expect("Could not parse pong");
+        assert_eq!(client_addr, addr);
+        assert_eq!(0x0123456789ABCDEF, pong.time);
+        assert_eq!(0xFEDCBA9876453210, pong.guid);
+        assert_eq!(String::from("Ping Response"), pong.data);
     }
 }
