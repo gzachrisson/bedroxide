@@ -92,7 +92,7 @@ mod tests {
 
     use crate::{
         error::RakNetError,
-        messages::{UnconnectedPingMessage, UnconnectedPongMessage},
+        messages::{UnconnectedPingMessage, UnconnectedPongMessage, OpenConnectionRequest1Message},
         reader::RakNetMessageRead,
         writer::RakNetMessageWrite,
     };
@@ -128,13 +128,13 @@ mod tests {
         let mut reader = Cursor::new(buf);
 
         // Act
-        let ping_result = UnconnectedPingMessage::read_message(&mut reader);
+        let result = UnconnectedPingMessage::read_message(&mut reader);
 
         // Assert
-        match ping_result {
-            Ok(_) => panic!("Ping read even though offline message ID was incorrect"),
+        match result {
+            Ok(_) => panic!("Message read even though offline message ID was incorrect"),
             Err(RakNetError::InvalidData) => {},
-            _ => panic!("Invalid error reading ping with invalid message ID"),
+            _ => panic!("Invalid error reading message with invalid message ID"),
         }
     }    
 
@@ -216,13 +216,13 @@ mod tests {
         let mut reader = Cursor::new(buf);
 
         // Act
-        let pong_result = UnconnectedPongMessage::read_message(&mut reader);
+        let result = UnconnectedPongMessage::read_message(&mut reader);
 
         // Assert
-        match pong_result {
-            Ok(_) => panic!("Pong read even though offline message ID was incorrect"),
+        match result {
+            Ok(_) => panic!("Message read even though offline message ID was incorrect"),
             Err(RakNetError::InvalidData) => {},
-            _ => panic!("Invalid error reading pong with invalid offline message ID"),
+            _ => panic!("Invalid error reading message with invalid offline message ID"),
         }
     }    
 
@@ -272,5 +272,68 @@ mod tests {
             // Empty data
         ],
         buf);
+    }
+
+    #[test]
+    fn read_open_connection_request_1() {
+        // Arrange
+        let buf = vec![
+            0x05, // Message ID: Open Connection Request 1
+            0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
+            0x12, // RakNet protocol version: 0x12
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Zero padding: 8 bytes
+        ];
+        let mut reader = Cursor::new(buf);
+
+        // Act
+        let req1 = OpenConnectionRequest1Message::read_message(&mut reader).expect("Failed to read Open Connection Request 1");
+
+        // Assert
+        assert_eq!(0x12, req1.protocol_version);
+        assert_eq!(8, req1.padding_length);
+    }
+
+    #[test]
+    fn read_open_connection_request_1_invalid_offline_message_id() {
+        // Arrange
+        let buf = vec![
+            0x05, // Message ID: Open Connection Request 1
+            0xAA, 0xAA, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // INVALID Offline message ID
+            0x12, // RakNet protocol version: 0x12
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Zero padding: 8 bytes
+        ];
+        let mut reader = Cursor::new(buf);
+
+        // Act
+        let result = OpenConnectionRequest1Message::read_message(&mut reader);
+
+        // Assert
+        match result {
+            Ok(_) => panic!("Message read even though offline message ID was incorrect"),
+            Err(RakNetError::InvalidData) => {},
+            _ => panic!("Invalid error reading message with invalid offline message ID"),
+        }
     }    
+
+    #[test]
+    fn write_open_connection_request_1() {
+        // Arrange
+        let req1 = OpenConnectionRequest1Message {
+            protocol_version: 0x34,
+            padding_length: 10,
+        };
+        let mut buf = Vec::new();
+
+        // Act
+        req1.write_message(&mut buf).expect("Could not write Open Connection Request 1");
+
+        // Assert
+        assert_eq!(vec![
+            0x05, // Message ID: Open Connection Request 1
+            0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
+            0x34, // RakNet protocol version: 0x34
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Zero padding: 10 bytes
+        ],
+        buf);
+    }
 }
