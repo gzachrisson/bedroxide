@@ -92,7 +92,7 @@ mod tests {
 
     use crate::{
         error::RakNetError,
-        messages::UnconnectedPingMessage,
+        messages::{UnconnectedPingMessage, UnconnectedPongMessage},
         reader::RakNetMessageRead,
         writer::RakNetMessageWrite,
     };
@@ -134,7 +134,7 @@ mod tests {
         match ping_result {
             Ok(_) => panic!("Ping read even though offline message ID was incorrect"),
             Err(RakNetError::InvalidData) => {},
-            _ => panic!("Invalid error"),
+            _ => panic!("Invalid error reading ping with invalid message ID"),
         }
     }    
 
@@ -158,6 +158,119 @@ mod tests {
             0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Client guid: 0x8877665544332211
         ],
         buf);
+
     }
 
+    #[test]
+    fn read_unconnected_pong() {
+        // Arrange
+        let buf = vec![
+            0x1C, // Message ID: Unconnected pong
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, // Time: 0x0123456789ABCDEF
+            0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Guid: 0x8877665544332211
+            0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
+            0x98, 0x76, 0x54, 0x32, // Data
+        ];
+        let mut reader = Cursor::new(buf);
+
+        // Act
+        let pong = UnconnectedPongMessage::read_message(&mut reader).expect("Failed to read unconnected pong");
+
+        // Assert
+        assert_eq!(0x0123456789ABCDEF, pong.time);
+        assert_eq!(0x8877665544332211, pong.guid);
+        assert_eq!(vec![0x98, 0x76, 0x54, 0x32], pong.data);
+    }
+
+    #[test]
+    fn read_unconnected_pong_empty_data() {
+        // Arrange
+        let buf = vec![
+            0x1C, // Message ID: Unconnected pong
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, // Time: 0x0123456789ABCDEF
+            0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Guid: 0x8877665544332211
+            0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
+            // Empty data
+        ];
+        let mut reader = Cursor::new(buf);
+
+        // Act
+        let pong = UnconnectedPongMessage::read_message(&mut reader).expect("Failed to read unconnected pong");
+
+        // Assert
+        assert_eq!(0x0123456789ABCDEF, pong.time);
+        assert_eq!(0x8877665544332211, pong.guid);
+        assert_eq!(Vec::<u8>::new(), pong.data);
+    }
+
+    #[test]
+    fn read_unconnected_pong_invalid_offline_message_id() {
+        // Arrange
+        let buf = vec![
+            0x1C, // Message ID: Unconnected pong
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, // Time: 0x0123456789ABCDEF
+            0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Guid: 0x8877665544332211
+            0xAA, 0xAA, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // INVALID Offline message ID
+            0x98, 0x76, 0x54, 0x32, // Data
+        ];
+        let mut reader = Cursor::new(buf);
+
+        // Act
+        let pong_result = UnconnectedPongMessage::read_message(&mut reader);
+
+        // Assert
+        match pong_result {
+            Ok(_) => panic!("Pong read even though offline message ID was incorrect"),
+            Err(RakNetError::InvalidData) => {},
+            _ => panic!("Invalid error reading pong with invalid offline message ID"),
+        }
+    }    
+
+    #[test]
+    fn write_unconnected_pong() {
+        // Arrange
+        let pong = UnconnectedPongMessage {
+            time: 0x0123456789ABCDEF,
+            guid: 0x8877665544332211,
+            data: vec![0x98, 0x76, 0x54, 0x32],
+        };
+        let mut buf = Vec::new();
+
+        // Act
+        pong.write_message(&mut buf).expect("Could not write pong message");
+
+        // Assert
+        assert_eq!(vec![
+            0x1C, // Message ID: Unconnected pong
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, // Time: 0x0123456789ABCDEF
+            0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Guid: 0x8877665544332211
+            0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
+            0x98, 0x76, 0x54, 0x32, // Data
+        ],
+        buf);
+    }
+
+    #[test]
+    fn write_unconnected_pong_empty_data() {
+        // Arrange
+        let pong = UnconnectedPongMessage {
+            time: 0x0123456789ABCDEF,
+            guid: 0x8877665544332211,
+            data: vec![],
+        };
+        let mut buf = Vec::new();
+
+        // Act
+        pong.write_message(&mut buf).expect("Could not write pong message with empty data");
+
+        // Assert
+        assert_eq!(vec![
+            0x1C, // Message ID: Unconnected pong
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, // Time: 0x0123456789ABCDEF
+            0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Guid: 0x8877665544332211
+            0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
+            // Empty data
+        ],
+        buf);
+    }    
 }
