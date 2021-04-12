@@ -85,6 +85,54 @@ impl RakNetMessageWrite for OpenConnectionRequest1Message {
     }
 }
 
+pub struct OpenConnectionReply1Message {
+    pub guid: u64,
+    pub security_cookie_and_public_key: Option<([u8;4], [u8;64])>,
+    pub mtu_size: u16,
+}
+
+impl RakNetMessageRead for OpenConnectionReply1Message {
+    fn read_message(reader: &mut dyn RakNetRead) -> Result<Self, RakNetError> {
+        reader.read_byte_and_compare(MessageId::OpenConnectionReply1.into())?;
+        reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID)?;
+        let guid = reader.read_unsigned_long_be()?;
+        let use_security = reader.read_byte()?;
+        let security_cookie_and_public_key = if use_security == 0x01 {
+            let mut cookie = [0u8; 4];
+            let mut public_key = [0u8; 64];
+            reader.read_bytes(&mut cookie)?;
+            reader.read_bytes(&mut public_key)?;
+            Some((cookie, public_key))
+        } else {
+            None
+        };
+        let mtu_size = reader.read_unsigned_short_be()?;
+
+        Ok(OpenConnectionReply1Message {
+            guid,
+            security_cookie_and_public_key,
+            mtu_size,
+        })
+    }
+}
+
+impl RakNetMessageWrite for OpenConnectionReply1Message {
+    fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<(), RakNetError> {
+        writer.write_byte(MessageId::OpenConnectionReply1.into())?;
+        writer.write_bytes(&OFFLINE_MESSAGE_ID)?;
+        writer.write_unsigned_long_be(self.guid)?;
+        if let Some((cookie, public_key)) = self.security_cookie_and_public_key {
+            writer.write_byte(0x01)?; // Using security = 0x01
+            writer.write_bytes(&cookie)?;
+            writer.write_bytes(&public_key)?;
+        } else {
+            writer.write_byte(0x00)?; // Not using security = 0x00
+        }
+        writer.write_unsigned_short_be(self.mtu_size)?;
+        Ok(())      
+    }
+}
+
 pub struct IncompatibleProtocolVersionMessage {
     pub protocol_version: u8,
     pub guid: u64,
@@ -116,7 +164,12 @@ mod tests {
 
     use crate::{
         error::RakNetError,
-        messages::{UnconnectedPingMessage, UnconnectedPongMessage, OpenConnectionRequest1Message, IncompatibleProtocolVersionMessage},
+        messages::{
+            UnconnectedPingMessage,
+            UnconnectedPongMessage,
+            OpenConnectionRequest1Message,
+            OpenConnectionReply1Message,
+            IncompatibleProtocolVersionMessage},
         reader::RakNetMessageRead,
         writer::RakNetMessageWrite,
     };
@@ -357,6 +410,109 @@ mod tests {
             0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
             0x34, // RakNet protocol version: 0x34
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Zero padding: 10 bytes
+        ],
+        buf);
+    }
+
+    #[test]
+    fn read_open_connection_reply_1_no_security() {
+        // Arrange
+        let buf = vec![
+            0x06, // Message ID: Open Connection Reply 1
+            0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
+            0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Guid: 0x8877665544332211
+            0x00, // Use security: false = 0x00
+            0x01, 0x23, // MTU size: 0x0123
+        ];
+        let mut reader = Cursor::new(buf);
+
+        // Act
+        let reply1 = OpenConnectionReply1Message::read_message(&mut reader).expect("Failed to read message");
+
+        // Assert
+        assert_eq!(0x8877665544332211, reply1.guid);
+        assert_eq!(None, reply1.security_cookie_and_public_key);
+        assert_eq!(0x0123, reply1.mtu_size);
+    }
+
+    #[test]
+    fn read_open_connection_reply_1_with_security() {
+        // Arrange
+        let buf = vec![
+            0x06, // Message ID: Open Connection Reply 1
+            0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
+            0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Guid: 0x8877665544332211
+            0x01, // Use security: true = 0x01
+            0x11, 0x22, 0x33, 0x44, // Cookie (4 bytes)
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, // Public key (4 bytes)
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4,
+            0x01, 0x23, // MTU size: 0x0123
+        ];
+        let mut reader = Cursor::new(buf);
+
+        // Act
+        let reply1 = OpenConnectionReply1Message::read_message(&mut reader).expect("Failed to read message");
+
+        // Assert
+        assert_eq!(0x8877665544332211, reply1.guid);
+        assert_eq!(Some(([0x11, 0x22, 0x33, 0x44], [
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0,
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4,            
+        ])),
+        reply1.security_cookie_and_public_key);
+        assert_eq!(0x0123, reply1.mtu_size);
+    }
+
+    #[test]
+    fn write_open_connection_reply_1_no_security() {
+        // Arrange
+        let reply1 = OpenConnectionReply1Message {
+            guid: 0x8877665544332211,
+            security_cookie_and_public_key: None,
+            mtu_size: 0x0123,
+        };
+        let mut buf = Vec::new();
+
+        // Act
+        reply1.write_message(&mut buf).expect("Could not write message");
+
+        // Assert
+        assert_eq!(vec![
+            0x06, // Message ID: Open Connection Reply 1
+            0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
+            0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Guid: 0x8877665544332211
+            0x00, // Use security: false = 0x00
+            0x01, 0x23, // MTU size: 0x0123
+        ],
+        buf);
+    }
+    
+    #[test]
+    fn write_open_connection_reply_1_with_security() {
+        // Arrange
+        let reply1 = OpenConnectionReply1Message {
+            guid: 0x8877665544332211,
+            security_cookie_and_public_key: Some(([0x11, 0x22, 0x33, 0x44],[
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0,
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4,   
+            ])),
+            mtu_size: 0x0123,
+        };
+        let mut buf = Vec::new();
+
+        // Act
+        reply1.write_message(&mut buf).expect("Could not write message");
+
+        // Assert
+        assert_eq!(vec![
+            0x06, // Message ID: Open Connection Reply 1
+            0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
+            0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Guid: 0x8877665544332211
+            0x01, // Use security: true = 0x01
+            0x11, 0x22, 0x33, 0x44, // Cookie (4 bytes)
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, // Public key (4 bytes)
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4,
+            0x01, 0x23, // MTU size: 0x0123
         ],
         buf);
     }

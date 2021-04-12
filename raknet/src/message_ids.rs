@@ -6,6 +6,7 @@ use super::RakNetError;
 pub enum MessageId {
     UnconnectedPing = 0x01,
     OpenConnectionRequest1 = 0x05,
+    OpenConnectionReply1 = 0x06,
     IncompatibleProtocolVersion = 0x19,
     UnconnectedPong = 0x1c,
 }
@@ -23,6 +24,8 @@ impl TryFrom<u8> for MessageId {
         match value {
             0x01 => Ok(Self::UnconnectedPing),
             0x05 => Ok(Self::OpenConnectionRequest1),
+            0x06 => Ok(Self::OpenConnectionReply1),
+            0x19 => Ok(Self::IncompatibleProtocolVersion),
             0x1c => Ok(Self::UnconnectedPong),
             _ => Err(RakNetError::UnknownMessageId(value)),
         }
