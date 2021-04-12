@@ -85,3 +85,79 @@ impl RakNetMessageWrite for OpenConnectionRequest1Message {
         Ok(())      
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use crate::{
+        error::RakNetError,
+        messages::UnconnectedPingMessage,
+        reader::RakNetMessageRead,
+        writer::RakNetMessageWrite,
+    };
+
+    #[test]
+    fn read_unconnected_ping() {
+        // Arrange
+        let buf = vec![
+            0x01, // Message ID: Unconnected ping
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, // Time: 0x0123456789ABCDEF
+            0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
+            0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Client guid: 0x8877665544332211
+        ];
+        let mut reader = Cursor::new(buf);
+
+        // Act
+        let ping = UnconnectedPingMessage::read_message(&mut reader).expect("Failed to read unconnected ping");
+
+        // Assert
+        assert_eq!(0x0123456789ABCDEF, ping.time);
+        assert_eq!(0x8877665544332211, ping.client_guid);
+    }
+
+    #[test]
+    fn read_unconnected_ping_invalid_offline_message_id() {
+        // Arrange
+        let buf = vec![
+            0x01, // Message ID: Unconnected ping
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, // Time: 0x0123456789ABCDEF
+            0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // INVALID Offline message ID
+            0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Client guid: 0x8877665544332211
+        ];
+        let mut reader = Cursor::new(buf);
+
+        // Act
+        let ping_result = UnconnectedPingMessage::read_message(&mut reader);
+
+        // Assert
+        match ping_result {
+            Ok(_) => panic!("Ping read even though offline message ID was incorrect"),
+            Err(RakNetError::InvalidData) => {},
+            _ => panic!("Invalid error"),
+        }
+    }    
+
+    #[test]
+    fn write_unconnected_ping() {
+        // Arrange
+        let ping = UnconnectedPingMessage {
+            time: 0x0123456789ABCDEF,
+            client_guid: 0x8877665544332211,
+        };
+        let mut buf = Vec::new();
+
+        // Act
+        ping.write_message(&mut buf).expect("Could not write ping message");
+
+        // Assert
+        assert_eq!(vec![
+            0x01, // Message ID: Unconnected ping
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, // Time: 0x0123456789ABCDEF
+            0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
+            0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Client guid: 0x8877665544332211
+        ],
+        buf);
+    }
+
+}
