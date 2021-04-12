@@ -7,6 +7,7 @@ pub use crate::{
 
 mod config;
 mod connection_manager;
+mod constants;
 mod error;
 mod message_ids;
 mod messages;

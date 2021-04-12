@@ -1,11 +1,10 @@
-use super::{
-    RakNetError,
+use crate::{
+    constants::OFFLINE_MESSAGE_ID,
+    error::RakNetError,
+    message_ids::MessageId,
     reader::{RakNetRead, RakNetMessageRead},
     writer::{RakNetWrite, RakNetMessageWrite},
-    message_ids::MessageId,
 };
-
-const OFFLINE_MESSAGE_ID: [u8; 16] = [0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78];
 
 pub struct UnconnectedPingMessage {
     pub time: u64,
@@ -86,13 +85,38 @@ impl RakNetMessageWrite for OpenConnectionRequest1Message {
     }
 }
 
+pub struct IncompatibleProtocolVersionMessage {
+    pub protocol_version: u8,
+    pub guid: u64,
+}
+
+impl RakNetMessageRead for IncompatibleProtocolVersionMessage {
+    fn read_message(reader: &mut dyn RakNetRead) -> Result<Self, RakNetError> {
+        reader.read_byte_and_compare(MessageId::IncompatibleProtocolVersion.into())?;
+        let protocol_version = reader.read_byte()?;
+        reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID)?;
+        let guid = reader.read_unsigned_long_be()?;
+        Ok(IncompatibleProtocolVersionMessage { protocol_version, guid })
+    }
+}
+
+impl RakNetMessageWrite for IncompatibleProtocolVersionMessage {
+    fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<(), RakNetError> {
+        writer.write_byte(MessageId::IncompatibleProtocolVersion.into())?;
+        writer.write_byte(self.protocol_version)?;
+        writer.write_bytes(&OFFLINE_MESSAGE_ID)?;
+        writer.write_unsigned_long_be(self.guid)?;
+        Ok(())      
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;
 
     use crate::{
         error::RakNetError,
-        messages::{UnconnectedPingMessage, UnconnectedPongMessage, OpenConnectionRequest1Message},
+        messages::{UnconnectedPingMessage, UnconnectedPongMessage, OpenConnectionRequest1Message, IncompatibleProtocolVersionMessage},
         reader::RakNetMessageRead,
         writer::RakNetMessageWrite,
     };
@@ -333,6 +357,69 @@ mod tests {
             0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
             0x34, // RakNet protocol version: 0x34
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Zero padding: 10 bytes
+        ],
+        buf);
+    }
+
+    #[test]
+    fn read_incompatible_protocol_version() {
+        // Arrange
+        let buf = vec![
+            0x19, // Message ID: Incompatible Protocol Version
+            0x23, // Protocol version: 0x23
+            0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
+            0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Guid: 0x8877665544332211
+        ];
+        let mut reader = Cursor::new(buf);
+
+        // Act
+        let message = IncompatibleProtocolVersionMessage::read_message(&mut reader).expect("Failed to message");
+
+        // Assert
+        assert_eq!(0x23, message.protocol_version);
+        assert_eq!(0x8877665544332211, message.guid);
+    }
+
+    #[test]
+    fn read_incompatible_protocol_version_invalid_offline_message_id() {
+        // Arrange
+        let buf = vec![
+            0x19, // Message ID: Incompatible Protocol Version
+            0x23, // Protocol version: 0x23
+            0xAA, 0xAA, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
+            0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Guid: 0x8877665544332211
+        ];
+        let mut reader = Cursor::new(buf);
+
+        // Act
+        let result = IncompatibleProtocolVersionMessage::read_message(&mut reader);
+
+        // Assert
+        match result {
+            Ok(_) => panic!("Message read even though offline message ID was incorrect"),
+            Err(RakNetError::InvalidData) => {},
+            _ => panic!("Invalid error reading message with invalid offline message ID"),
+        }
+    }    
+
+    #[test]
+    fn write_incompatible_protocol_version() {
+        // Arrange
+        let message = IncompatibleProtocolVersionMessage {
+            protocol_version: 0x23,
+            guid: 0x8877665544332211,
+        };
+        let mut buf = Vec::new();
+
+        // Act
+        message.write_message(&mut buf).expect("Could not write message");
+
+        // Assert
+        assert_eq!(vec![
+            0x19, // Message ID: Incompatible Protocol Version
+            0x23, // Protocol version: 0x23
+            0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
+            0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Guid: 0x8877665544332211
         ],
         buf);
     }

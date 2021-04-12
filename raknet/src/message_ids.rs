@@ -6,6 +6,7 @@ use super::RakNetError;
 pub enum MessageId {
     UnconnectedPing = 0x01,
     OpenConnectionRequest1 = 0x05,
+    IncompatibleProtocolVersion = 0x19,
     UnconnectedPong = 0x1c,
 }
 

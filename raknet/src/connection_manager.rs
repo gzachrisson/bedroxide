@@ -7,7 +7,13 @@ use log::{error, debug};
 
 use crate::{
     config::Config,
-    messages::{OpenConnectionRequest1Message, UnconnectedPingMessage, UnconnectedPongMessage},
+    constants::RAKNET_PROTOCOL_VERSION,
+    messages::{
+        OpenConnectionRequest1Message,
+        UnconnectedPingMessage,
+        UnconnectedPongMessage,
+        IncompatibleProtocolVersionMessage
+    },
     RakNetError,
     reader::{RakNetMessageRead},
     socket::DatagramSocket,
@@ -84,7 +90,7 @@ impl<T: DatagramSocket> ConnectionManager<T> {
 
         reader.set_position(0);
         if let Ok(request1) = OpenConnectionRequest1Message::read_message(&mut reader) {
-            Self::handle_open_connection_request1_message(request1)?;
+            Self::handle_open_connection_request1_message(request1, addr, socket, config)?;
             return Ok(true);
         }
          
@@ -106,9 +112,17 @@ impl<T: DatagramSocket> ConnectionManager<T> {
         Ok(())
     }
 
-    fn handle_open_connection_request1_message(request1: OpenConnectionRequest1Message) -> Result<(), RakNetError> {
+    fn handle_open_connection_request1_message(request1: OpenConnectionRequest1Message, addr: SocketAddr, socket: &mut T, config: &Config) -> Result<(), RakNetError> {
         debug!("Received Open Connection Request 1: protocol_version={}, padding_length={}", request1.protocol_version, request1.padding_length);
-        // TODO: Send response
+        if request1.protocol_version != RAKNET_PROTOCOL_VERSION {
+            let response = IncompatibleProtocolVersionMessage {
+                protocol_version: RAKNET_PROTOCOL_VERSION,
+                guid: config.guid,
+            };
+            Self::send_message(&response, addr, socket)?;
+        } else {
+            // TODO: Send response
+        }
         Ok(())
     }
 
@@ -131,45 +145,76 @@ mod tests {
     use crate::{
         config::Config,
         connection_manager::ConnectionManager,
-        messages::{UnconnectedPingMessage, UnconnectedPongMessage},
+        constants::RAKNET_PROTOCOL_VERSION,
+        messages::{UnconnectedPingMessage, UnconnectedPongMessage, OpenConnectionRequest1Message, IncompatibleProtocolVersionMessage},
         reader::RakNetMessageRead,
         socket::FakeDatagramSocket,
         writer::RakNetMessageWrite,
     };
+    const OWN_GUID: u64 = 0xFEDCBA9876453210;
 
-    fn create_connection_manager() -> (ConnectionManager<FakeDatagramSocket>, Sender<(Vec<u8>, SocketAddr)>, Receiver<(Vec<u8>, SocketAddr)>) {
+    fn create_connection_manager() -> (ConnectionManager<FakeDatagramSocket>, Sender<(Vec<u8>, SocketAddr)>, Receiver<(Vec<u8>, SocketAddr)>, SocketAddr) {
         let fake_socket = FakeDatagramSocket::new();
         let datagram_sender = fake_socket.get_datagram_sender();
         let datagram_receiver = fake_socket.get_datagram_receiver();
+        let remote_addr = "127.0.0.1:19132".parse::<SocketAddr>().expect("Could not create address");
         let mut config = Config::default();
-        config.guid = 0xFEDCBA9876453210;
-        (ConnectionManager::new(fake_socket, config), datagram_sender, datagram_receiver)
+        config.guid = OWN_GUID;
+        (ConnectionManager::new(fake_socket, config), datagram_sender, datagram_receiver, remote_addr)
+    }
+
+    fn send_datagram<M: RakNetMessageWrite>(message: M, datagram_sender: &mut Sender<(Vec<u8>, SocketAddr)>, remote_addr: SocketAddr) {
+        let mut buf = Vec::new();
+        message.write_message(&mut buf).expect("Could not create message");
+        datagram_sender.send((buf, remote_addr)).expect("Could not send datagram");
+    }
+
+    fn receive_datagram<M: RakNetMessageRead>(datagram_receiver: &mut Receiver<(Vec<u8>, SocketAddr)>) -> (M, SocketAddr) {
+        let (payload, addr) = datagram_receiver.try_recv().expect("Datagram not received");
+        let mut reader = Cursor::new(payload);
+        let message = M::read_message(&mut reader).expect("Could not parse message");
+        (message, addr)
     }
 
     #[test]
     fn ping_responds_with_pong() {
         // Arrange
-        let (mut connection_manager, datagram_sender, datagram_receiver) = create_connection_manager();
-        let client_addr = "127.0.0.1:19132".parse::<SocketAddr>().expect("Could not create address");
+        let (mut connection_manager, mut datagram_sender, mut datagram_receiver, remote_addr) = create_connection_manager();
         let ping = UnconnectedPingMessage {
             time: 0x0123456789ABCDEF,
             client_guid: 0x1122334455667788,
         };
-        let mut ping_buf = Vec::new();
-        ping.write_message(&mut ping_buf).expect("Could not create message");
-        datagram_sender.send((ping_buf, client_addr)).expect("Could not send datagram");
         connection_manager.set_offline_ping_response(vec![0x00, 0x02, 0x41, 0x42]);
+        send_datagram(ping, &mut datagram_sender, remote_addr);
         
         // Act
         connection_manager.process();
 
         // Assert
-        let (payload, addr) = datagram_receiver.recv().expect("Datagram not received");
-        let mut reader = Cursor::new(payload);
-        let pong = UnconnectedPongMessage::read_message(&mut reader).expect("Could not parse pong");
-        assert_eq!(client_addr, addr);
+        let (pong, addr) = receive_datagram::<UnconnectedPongMessage>(&mut datagram_receiver);
+        assert_eq!(remote_addr, addr);
         assert_eq!(0x0123456789ABCDEF, pong.time);
-        assert_eq!(0xFEDCBA9876453210, pong.guid);
+        assert_eq!(OWN_GUID, pong.guid);
         assert_eq!(vec![0x00, 0x02, 0x41, 0x42], pong.data);
+    }
+
+    #[test]
+    fn open_connection_request_1_incompatible_protocol_version() {
+        // Arrange
+        let (mut connection_manager, mut datagram_sender, mut datagram_receiver, remote_addr) = create_connection_manager();
+        let req1 = OpenConnectionRequest1Message {
+            protocol_version: RAKNET_PROTOCOL_VERSION + 1, // INVALID protocol version
+            padding_length: 8,
+        };
+        send_datagram(req1, &mut datagram_sender, remote_addr);
+
+        // Act
+        connection_manager.process();
+
+        // Assert
+        let (message, addr) = receive_datagram::<IncompatibleProtocolVersionMessage>(&mut datagram_receiver);
+        assert_eq!(remote_addr, addr);      
+        assert_eq!(RAKNET_PROTOCOL_VERSION, message.protocol_version);
+        assert_eq!(OWN_GUID, message.guid);
     }
 }
