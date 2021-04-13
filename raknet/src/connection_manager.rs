@@ -7,9 +7,10 @@ use log::{error, debug};
 
 use crate::{
     config::Config,
-    constants::RAKNET_PROTOCOL_VERSION,
+    constants::{RAKNET_PROTOCOL_VERSION, UDP_HEADER_SIZE, MAXIMUM_MTU_SIZE},
     messages::{
         OpenConnectionRequest1Message,
+        OpenConnectionReply1Message,
         UnconnectedPingMessage,
         UnconnectedPongMessage,
         IncompatibleProtocolVersionMessage
@@ -29,7 +30,7 @@ pub struct ConnectionManager<T: DatagramSocket> {
 
 impl<T: DatagramSocket> ConnectionManager<T> {
     pub fn new(socket: T, config: Config) -> Self {
-        let receive_buffer = vec![0u8; 2048];
+        let receive_buffer = vec![0u8; MAXIMUM_MTU_SIZE.into()];
         ConnectionManager {
             socket,
             config,
@@ -121,7 +122,14 @@ impl<T: DatagramSocket> ConnectionManager<T> {
             };
             Self::send_message(&response, addr, socket)?;
         } else {
-            // TODO: Send response
+            let requested_mtu = UDP_HEADER_SIZE + 1 + 16 + 1 + request1.padding_length;
+            let mtu = if requested_mtu < MAXIMUM_MTU_SIZE { requested_mtu } else { MAXIMUM_MTU_SIZE };
+            let response = OpenConnectionReply1Message {
+                guid: config.guid,
+                security_cookie_and_public_key: None,
+                mtu,
+            };
+            Self::send_message(&response, addr, socket)?
         }
         Ok(())
     }
@@ -145,8 +153,14 @@ mod tests {
     use crate::{
         config::Config,
         connection_manager::ConnectionManager,
-        constants::RAKNET_PROTOCOL_VERSION,
-        messages::{UnconnectedPingMessage, UnconnectedPongMessage, OpenConnectionRequest1Message, IncompatibleProtocolVersionMessage},
+        constants::{RAKNET_PROTOCOL_VERSION, UDP_HEADER_SIZE},
+        messages::{
+            UnconnectedPingMessage,
+            UnconnectedPongMessage,
+            OpenConnectionRequest1Message,
+            OpenConnectionReply1Message,
+            IncompatibleProtocolVersionMessage
+        },
         reader::RakNetMessageRead,
         socket::FakeDatagramSocket,
         writer::RakNetMessageWrite,
@@ -217,4 +231,25 @@ mod tests {
         assert_eq!(RAKNET_PROTOCOL_VERSION, message.protocol_version);
         assert_eq!(OWN_GUID, message.guid);
     }
+
+    #[test]
+    fn open_connection_request_1_responds_with_reply_1() {
+        // Arrange
+        let (mut connection_manager, mut datagram_sender, mut datagram_receiver, remote_addr) = create_connection_manager();
+        let req1 = OpenConnectionRequest1Message {
+            protocol_version: RAKNET_PROTOCOL_VERSION,
+            padding_length: 400,
+        };
+        send_datagram(req1, &mut datagram_sender, remote_addr);
+
+        // Act
+        connection_manager.process();
+
+        // Assert
+        let (message, addr) = receive_datagram::<OpenConnectionReply1Message>(&mut datagram_receiver);
+        assert_eq!(remote_addr, addr);
+        assert_eq!(OWN_GUID, message.guid);
+        assert_eq!(None, message.security_cookie_and_public_key);
+        assert_eq!(UDP_HEADER_SIZE + 1 + 16 + 1 + 400, message.mtu);
+    } 
 }

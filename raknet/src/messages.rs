@@ -88,7 +88,7 @@ impl RakNetMessageWrite for OpenConnectionRequest1Message {
 pub struct OpenConnectionReply1Message {
     pub guid: u64,
     pub security_cookie_and_public_key: Option<([u8;4], [u8;64])>,
-    pub mtu_size: u16,
+    pub mtu: u16,
 }
 
 impl RakNetMessageRead for OpenConnectionReply1Message {
@@ -106,12 +106,12 @@ impl RakNetMessageRead for OpenConnectionReply1Message {
         } else {
             None
         };
-        let mtu_size = reader.read_unsigned_short_be()?;
+        let mtu = reader.read_unsigned_short_be()?;
 
         Ok(OpenConnectionReply1Message {
             guid,
             security_cookie_and_public_key,
-            mtu_size,
+            mtu,
         })
     }
 }
@@ -128,7 +128,7 @@ impl RakNetMessageWrite for OpenConnectionReply1Message {
         } else {
             writer.write_byte(0x00)?; // Not using security = 0x00
         }
-        writer.write_unsigned_short_be(self.mtu_size)?;
+        writer.write_unsigned_short_be(self.mtu)?;
         Ok(())      
     }
 }
@@ -422,7 +422,7 @@ mod tests {
             0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
             0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Guid: 0x8877665544332211
             0x00, // Use security: false = 0x00
-            0x01, 0x23, // MTU size: 0x0123
+            0x01, 0x23, // MTU: 0x0123
         ];
         let mut reader = Cursor::new(buf);
 
@@ -432,7 +432,7 @@ mod tests {
         // Assert
         assert_eq!(0x8877665544332211, reply1.guid);
         assert_eq!(None, reply1.security_cookie_and_public_key);
-        assert_eq!(0x0123, reply1.mtu_size);
+        assert_eq!(0x0123, reply1.mtu);
     }
 
     #[test]
@@ -460,7 +460,7 @@ mod tests {
             1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4,            
         ])),
         reply1.security_cookie_and_public_key);
-        assert_eq!(0x0123, reply1.mtu_size);
+        assert_eq!(0x0123, reply1.mtu);
     }
 
     #[test]
@@ -469,7 +469,7 @@ mod tests {
         let reply1 = OpenConnectionReply1Message {
             guid: 0x8877665544332211,
             security_cookie_and_public_key: None,
-            mtu_size: 0x0123,
+            mtu: 0x0123,
         };
         let mut buf = Vec::new();
 
@@ -496,7 +496,7 @@ mod tests {
                 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0,
                 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4,   
             ])),
-            mtu_size: 0x0123,
+            mtu: 0x0123,
         };
         let mut buf = Vec::new();
 
