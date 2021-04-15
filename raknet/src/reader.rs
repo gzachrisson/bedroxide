@@ -1,30 +1,35 @@
 use std::{
     convert::{TryFrom, TryInto},
     io::Read,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV6},
 };
 
 use super::RakNetError;
 
 pub trait RakNetRead {
-    fn read_byte(&mut self) -> Result<u8, RakNetError>;
-    fn read_byte_and_compare(&mut self, data: u8) -> Result<(), RakNetError>;
+    fn read_u8(&mut self) -> Result<u8, RakNetError>;
+    fn read_u8_and_compare(&mut self, data: u8) -> Result<(), RakNetError>;
     fn read_bytes(&mut self, buf: &mut [u8]) -> Result<(), RakNetError>;
     fn read_bytes_to_end(&mut self, buf: &mut Vec<u8>) -> Result<(), RakNetError>;
     fn read_bytes_and_compare(&mut self, data: &[u8]) -> Result<(), RakNetError>;
-    fn read_unsigned_short_be(&mut self) -> Result<u16, RakNetError>;
-    fn read_unsigned_long_be(&mut self) -> Result<u64, RakNetError>;
+    fn read_u16(&mut self) -> Result<u16, RakNetError>;
+    fn read_u16_be(&mut self) -> Result<u16, RakNetError>;
+    fn read_u32(&mut self) -> Result<u32, RakNetError>;
+    fn read_u32_be(&mut self) -> Result<u32, RakNetError>;
+    fn read_u64_be(&mut self) -> Result<u64, RakNetError>;
     fn read_fixed_string(&mut self) -> Result<String, RakNetError>;
     fn read_zero_padding(&mut self) -> Result<u16, RakNetError>;
+    fn read_socket_addr(&mut self) -> Result<SocketAddr, RakNetError>;
 }
 
 impl<T> RakNetRead for T where T: Read {
-    fn read_byte(&mut self) -> Result<u8, RakNetError> {
+    fn read_u8(&mut self) -> Result<u8, RakNetError> {
         let mut buf = [0u8; 1];
         self.read_exact(&mut buf)?;
         Ok(u8::from_le_bytes(buf[0..1].try_into().unwrap()))
     }
 
-    fn read_byte_and_compare(&mut self, data: u8) -> Result<(), RakNetError> {
+    fn read_u8_and_compare(&mut self, data: u8) -> Result<(), RakNetError> {
         let mut buf = [0u8; 1];
         self.read_exact(&mut buf)?;
         if buf[0] == data {
@@ -55,20 +60,38 @@ impl<T> RakNetRead for T where T: Read {
         }
     }
 
-    fn read_unsigned_short_be(&mut self) -> Result<u16, RakNetError> {
+    fn read_u16(&mut self) -> Result<u16, RakNetError> {
+        let mut buf = [0u8; 2];
+        self.read_exact(&mut buf)?;
+        Ok(u16::from_le_bytes(buf[0..2].try_into().unwrap()))
+    }
+
+    fn read_u16_be(&mut self) -> Result<u16, RakNetError> {
         let mut buf = [0u8; 2];
         self.read_exact(&mut buf)?;
         Ok(u16::from_be_bytes(buf[0..2].try_into().unwrap()))
     }
 
-    fn read_unsigned_long_be(&mut self) -> Result<u64, RakNetError> {
+    fn read_u32(&mut self) -> Result<u32, RakNetError> {
+        let mut buf = [0u8; 4];
+        self.read_exact(&mut buf)?;
+        Ok(u32::from_le_bytes(buf[0..4].try_into().unwrap()))
+    }
+
+    fn read_u32_be(&mut self) -> Result<u32, RakNetError> {
+        let mut buf = [0u8; 4];
+        self.read_exact(&mut buf)?;
+        Ok(u32::from_be_bytes(buf[0..4].try_into().unwrap()))
+    }
+
+    fn read_u64_be(&mut self) -> Result<u64, RakNetError> {
         let mut buf = [0u8; 8];
         self.read_exact(&mut buf)?;
         Ok(u64::from_be_bytes(buf[0..8].try_into().unwrap()))
     }
 
     fn read_fixed_string(&mut self) -> Result<String, RakNetError> {
-        let length: usize = self.read_unsigned_short_be()?.into();
+        let length: usize = self.read_u16_be()?.into();
         let mut buf = vec![0u8; length];
         self.read_exact(&mut buf)?;
         let s = String::from_utf8(buf)?;
@@ -87,9 +110,92 @@ impl<T> RakNetRead for T where T: Read {
         }
         Ok(padding_length)
     }
+
+    fn read_socket_addr(&mut self) -> Result<SocketAddr, RakNetError> {
+        let mut ip_version = [0u8; 1];
+        self.read_exact(&mut ip_version)?;
+        match ip_version[0] {
+            0x04 => {
+                let mut ip = [0u8; 4];                
+                self.read_exact(&mut ip)?;
+                let port = self.read_u16_be()?;
+                Ok(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(!ip[0], !ip[1], !ip[2], !ip[3])), port))
+            },
+            0x06 => {
+                let _ = self.read_u16()?; // family
+                let port = self.read_u16_be()?;
+                let flowinfo = self.read_u32()?;
+                let mut ip = [0u8; 16];
+                self.read_exact(&mut ip)?;
+                let scope_id = self.read_u32()?;
+                Ok(SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::from(ip), port, flowinfo, scope_id)))
+            },
+            _ => Err(RakNetError::InvalidData),
+        }
+    }
 }
 
 pub trait RakNetMessageRead: Sized {
     /// Reads a message including the message identifier.
+    /// 
+    /// This function assumes security is disabled on our peer, or
+    /// that the security state can be determined from the message content.
     fn read_message(reader: &mut dyn RakNetRead) -> Result<Self, RakNetError>;
+
+    /// Reads a message including the message identifier assuming
+    /// security is enabled on our peer.
+    /// The default implementation if not overridden just calls `read_message()`.
+    fn read_message_with_security(reader: &mut dyn RakNetRead) -> Result<Self, RakNetError> {
+        Self::read_message(reader)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        io::Cursor,
+        net::SocketAddr,        
+    };
+
+    use super::RakNetRead;
+
+    #[test]
+    fn read_socket_addr_ipv4() {
+        // Arrange
+        let buf = vec![0x04u8, !192, !168, !1, !248, 0x12, 0x34];
+        let mut reader = Cursor::new(buf);
+        
+        // Act
+        let socket_addr = reader.read_socket_addr().expect("Could not read SocketAddr");
+
+        // Assert
+        assert_eq!(SocketAddr::from(([192, 168, 1, 248], 0x1234)), socket_addr);
+    }
+
+    #[test]
+    fn read_socket_addr_ipv6() {
+        // Arrange
+        let buf = vec![
+            6u8, // IP version = 6
+            0x18, 0x00, // sin6_family (little endian): 0x0018=24=AF_INET6
+            0x12, 0x34, // sin6_port (big endian): 0x1234
+            0x78, 0x56, 0x34, 0x12, // sin6_flowinfo (little endian): 0x12345678
+            0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0xe0, 0x05, 0x63, 0xd8, 0x39, 0x49, // sin6_addr: fe80::8:e005:63d8:3949
+            0x44, 0x33, 0x22, 0x11, // sin6_scope_id (little endian): 0x11223344
+            ];
+        let mut reader = Cursor::new(buf);
+        
+        // Act
+        let socket_addr = reader.read_socket_addr().expect("Could not read SocketAddr");
+
+        // Assert
+        if let SocketAddr::V6(socket_addr_v6) = socket_addr {
+            assert_eq!(0x1234, socket_addr_v6.port());
+            assert_eq!(0x12345678, socket_addr_v6.flowinfo());
+            assert_eq!([0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0xe0, 0x05, 0x63, 0xd8, 0x39, 0x49], socket_addr_v6.ip().octets());
+            assert_eq!(0x11223344, socket_addr_v6.scope_id());
+        } else { 
+            panic!("Did not receive IP V6");
+        }
+    }    
 }

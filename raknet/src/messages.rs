@@ -1,3 +1,5 @@
+use std::net::SocketAddr;
+
 use crate::{
     constants::OFFLINE_MESSAGE_ID,
     error::RakNetError,
@@ -13,20 +15,20 @@ pub struct UnconnectedPingMessage {
 
 impl RakNetMessageRead for UnconnectedPingMessage {
     fn read_message(reader: &mut dyn RakNetRead) -> Result<Self, RakNetError> {
-        reader.read_byte_and_compare(MessageId::UnconnectedPing.into())?;
-        let time = reader.read_unsigned_long_be()?;
+        reader.read_u8_and_compare(MessageId::UnconnectedPing.into())?;
+        let time = reader.read_u64_be()?;
         reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID)?;
-        let client_guid = reader.read_unsigned_long_be()?;
+        let client_guid = reader.read_u64_be()?;
         Ok(UnconnectedPingMessage { time, client_guid })
     }
 }
 
 impl RakNetMessageWrite for UnconnectedPingMessage {
     fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<(), RakNetError> {
-        writer.write_byte(MessageId::UnconnectedPing.into())?;
-        writer.write_unsigned_long_be(self.time)?;
+        writer.write_u8(MessageId::UnconnectedPing.into())?;
+        writer.write_u64_be(self.time)?;
         writer.write_bytes(&OFFLINE_MESSAGE_ID)?;
-        writer.write_unsigned_long_be(self.client_guid)?;
+        writer.write_u64_be(self.client_guid)?;
         Ok(())
     }
 }
@@ -39,9 +41,9 @@ pub struct UnconnectedPongMessage {
 
 impl RakNetMessageRead for UnconnectedPongMessage {
     fn read_message(reader: &mut dyn RakNetRead) -> Result<Self, RakNetError> {
-        reader.read_byte_and_compare(MessageId::UnconnectedPong.into())?;
-        let time = reader.read_unsigned_long_be()?;
-        let guid = reader.read_unsigned_long_be()?;
+        reader.read_u8_and_compare(MessageId::UnconnectedPong.into())?;
+        let time = reader.read_u64_be()?;
+        let guid = reader.read_u64_be()?;
         reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID)?;
         let mut data = Vec::new();
         reader.read_bytes_to_end(&mut data)?;
@@ -51,9 +53,9 @@ impl RakNetMessageRead for UnconnectedPongMessage {
 
 impl RakNetMessageWrite for UnconnectedPongMessage {
     fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<(), RakNetError> {
-        writer.write_byte(MessageId::UnconnectedPong.into())?;
-        writer.write_unsigned_long_be(self.time)?;
-        writer.write_unsigned_long_be(self.guid)?;
+        writer.write_u8(MessageId::UnconnectedPong.into())?;
+        writer.write_u64_be(self.time)?;
+        writer.write_u64_be(self.guid)?;
         writer.write_bytes(&OFFLINE_MESSAGE_ID)?;
         writer.write_bytes(&self.data)?;
         Ok(())      
@@ -67,9 +69,9 @@ pub struct OpenConnectionRequest1Message {
 
 impl RakNetMessageRead for OpenConnectionRequest1Message {
     fn read_message(reader: &mut dyn RakNetRead) -> Result<Self, RakNetError> {
-        reader.read_byte_and_compare(MessageId::OpenConnectionRequest1.into())?;
+        reader.read_u8_and_compare(MessageId::OpenConnectionRequest1.into())?;
         reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID)?;
-        let protocol_version = reader.read_byte()?;
+        let protocol_version = reader.read_u8()?;
         let padding_length = reader.read_zero_padding()?;
         Ok(OpenConnectionRequest1Message { protocol_version, padding_length })
     }
@@ -77,9 +79,9 @@ impl RakNetMessageRead for OpenConnectionRequest1Message {
 
 impl RakNetMessageWrite for OpenConnectionRequest1Message {
     fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<(), RakNetError> {
-        writer.write_byte(MessageId::OpenConnectionRequest1.into())?;
+        writer.write_u8(MessageId::OpenConnectionRequest1.into())?;
         writer.write_bytes(&OFFLINE_MESSAGE_ID)?;
-        writer.write_byte(self.protocol_version)?;
+        writer.write_u8(self.protocol_version)?;
         writer.write_zero_padding(self.padding_length)?;
         Ok(())      
     }
@@ -87,26 +89,25 @@ impl RakNetMessageWrite for OpenConnectionRequest1Message {
 
 pub struct OpenConnectionReply1Message {
     pub guid: u64,
-    pub security_cookie_and_public_key: Option<([u8;4], [u8;64])>,
+    pub security_cookie_and_public_key: Option<(u32, [u8;64])>,
     pub mtu: u16,
 }
 
 impl RakNetMessageRead for OpenConnectionReply1Message {
     fn read_message(reader: &mut dyn RakNetRead) -> Result<Self, RakNetError> {
-        reader.read_byte_and_compare(MessageId::OpenConnectionReply1.into())?;
+        reader.read_u8_and_compare(MessageId::OpenConnectionReply1.into())?;
         reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID)?;
-        let guid = reader.read_unsigned_long_be()?;
-        let use_security = reader.read_byte()?;
+        let guid = reader.read_u64_be()?;
+        let use_security = reader.read_u8()?;
         let security_cookie_and_public_key = if use_security == 0x01 {
-            let mut cookie = [0u8; 4];
             let mut public_key = [0u8; 64];
-            reader.read_bytes(&mut cookie)?;
+            let cookie = reader.read_u32_be()?;
             reader.read_bytes(&mut public_key)?;
             Some((cookie, public_key))
         } else {
             None
         };
-        let mtu = reader.read_unsigned_short_be()?;
+        let mtu = reader.read_u16_be()?;
 
         Ok(OpenConnectionReply1Message {
             guid,
@@ -118,17 +119,83 @@ impl RakNetMessageRead for OpenConnectionReply1Message {
 
 impl RakNetMessageWrite for OpenConnectionReply1Message {
     fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<(), RakNetError> {
-        writer.write_byte(MessageId::OpenConnectionReply1.into())?;
+        writer.write_u8(MessageId::OpenConnectionReply1.into())?;
         writer.write_bytes(&OFFLINE_MESSAGE_ID)?;
-        writer.write_unsigned_long_be(self.guid)?;
+        writer.write_u64_be(self.guid)?;
         if let Some((cookie, public_key)) = self.security_cookie_and_public_key {
-            writer.write_byte(0x01)?; // Using security = 0x01
-            writer.write_bytes(&cookie)?;
+            writer.write_u8(0x01)?; // Using security = 0x01
+            writer.write_u32_be(cookie)?;
             writer.write_bytes(&public_key)?;
         } else {
-            writer.write_byte(0x00)?; // Not using security = 0x00
+            writer.write_u8(0x00)?; // Not using security = 0x00
         }
-        writer.write_unsigned_short_be(self.mtu)?;
+        writer.write_u16_be(self.mtu)?;
+        Ok(())      
+    }
+}
+
+pub struct OpenConnectionRequest2Message {
+    pub cookie_and_challenge: Option<(u32, Option<[u8; 64]>)>,
+    pub binding_address: SocketAddr,
+    pub mtu: u16,
+    pub guid: u64,
+}
+
+impl RakNetMessageRead for OpenConnectionRequest2Message {
+    fn read_message(reader: &mut dyn RakNetRead) -> Result<Self, RakNetError> {
+        reader.read_u8_and_compare(MessageId::OpenConnectionRequest2.into())?;
+        reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID)?;
+        let binding_address = reader.read_socket_addr()?;
+        let mtu = reader.read_u16_be()?;
+        let guid = reader.read_u64_be()?;
+        Ok(OpenConnectionRequest2Message {
+            cookie_and_challenge: None,
+            binding_address,
+            mtu,
+            guid,
+        })
+    }
+
+    fn read_message_with_security(reader: &mut dyn RakNetRead) -> Result<Self, RakNetError> {
+        reader.read_u8_and_compare(MessageId::OpenConnectionRequest2.into())?;
+        reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID)?;
+        let cookie = reader.read_u32_be()?;
+        let client_wrote_challenge = reader.read_u8()?;
+        let challenge = if client_wrote_challenge != 0x00 { 
+            let mut challenge = [0u8; 64];
+            reader.read_bytes(&mut challenge)?;
+            Some(challenge)
+        } else {
+            None
+        };
+        let binding_address = reader.read_socket_addr()?;
+        let mtu = reader.read_u16_be()?;
+        let guid = reader.read_u64_be()?;
+        Ok(OpenConnectionRequest2Message {
+            cookie_and_challenge: Some((cookie, challenge)),
+            binding_address,
+            mtu,
+            guid,
+        })
+    }    
+}
+
+impl RakNetMessageWrite for OpenConnectionRequest2Message {
+    fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<(), RakNetError> {
+        writer.write_u8(MessageId::OpenConnectionRequest2.into())?;
+        writer.write_bytes(&OFFLINE_MESSAGE_ID)?;
+        if let Some((cookie, challenge)) = &self.cookie_and_challenge {
+            writer.write_u32_be(*cookie)?;
+            if let Some(challenge) = challenge {
+                writer.write_u8(0x01)?; // Client wrote challenge: true
+                writer.write_bytes(challenge)?;
+            } else {
+                writer.write_u8(0x00)?; // Client wrote challenge: false
+            }
+        }
+        writer.write_socket_addr(&self.binding_address)?;
+        writer.write_u16_be(self.mtu)?;
+        writer.write_u64_be(self.guid)?;
         Ok(())      
     }
 }
@@ -140,27 +207,30 @@ pub struct IncompatibleProtocolVersionMessage {
 
 impl RakNetMessageRead for IncompatibleProtocolVersionMessage {
     fn read_message(reader: &mut dyn RakNetRead) -> Result<Self, RakNetError> {
-        reader.read_byte_and_compare(MessageId::IncompatibleProtocolVersion.into())?;
-        let protocol_version = reader.read_byte()?;
+        reader.read_u8_and_compare(MessageId::IncompatibleProtocolVersion.into())?;
+        let protocol_version = reader.read_u8()?;
         reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID)?;
-        let guid = reader.read_unsigned_long_be()?;
+        let guid = reader.read_u64_be()?;
         Ok(IncompatibleProtocolVersionMessage { protocol_version, guid })
     }
 }
 
 impl RakNetMessageWrite for IncompatibleProtocolVersionMessage {
     fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<(), RakNetError> {
-        writer.write_byte(MessageId::IncompatibleProtocolVersion.into())?;
-        writer.write_byte(self.protocol_version)?;
+        writer.write_u8(MessageId::IncompatibleProtocolVersion.into())?;
+        writer.write_u8(self.protocol_version)?;
         writer.write_bytes(&OFFLINE_MESSAGE_ID)?;
-        writer.write_unsigned_long_be(self.guid)?;
+        writer.write_u64_be(self.guid)?;
         Ok(())      
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
+    use std::{
+        io::Cursor,
+        net::SocketAddr,
+    };
 
     use crate::{
         error::RakNetError,
@@ -169,6 +239,7 @@ mod tests {
             UnconnectedPongMessage,
             OpenConnectionRequest1Message,
             OpenConnectionReply1Message,
+            OpenConnectionRequest2Message,
             IncompatibleProtocolVersionMessage},
         reader::RakNetMessageRead,
         writer::RakNetMessageWrite,
@@ -455,7 +526,7 @@ mod tests {
 
         // Assert
         assert_eq!(0x8877665544332211, reply1.guid);
-        assert_eq!(Some(([0x11, 0x22, 0x33, 0x44], [
+        assert_eq!(Some((0x11223344, [
             1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0,
             1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4,            
         ])),
@@ -492,7 +563,7 @@ mod tests {
         // Arrange
         let reply1 = OpenConnectionReply1Message {
             guid: 0x8877665544332211,
-            security_cookie_and_public_key: Some(([0x11, 0x22, 0x33, 0x44],[
+            security_cookie_and_public_key: Some((0x11223344,[
                 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0,
                 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4,   
             ])),
@@ -516,6 +587,85 @@ mod tests {
         ],
         buf);
     }
+
+    #[test]
+    fn read_open_connection_request_2_no_security() {
+        // Arrange
+        let buf = vec![
+            0x07, // Message ID: Open Connection Request 2
+            0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
+            0x04, !192, !168, !1, !248, 0x12, 0x34, // Binding address IPv4: 192.168.1.248, port: 0x1234
+            0x01, 0x23, // MTU: 0x123
+            0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0, // GUID: 0x123456789ABCDEF0
+        ];
+        let mut reader = Cursor::new(buf);
+
+        // Act
+        let req2 = OpenConnectionRequest2Message::read_message(&mut reader).expect("Failed to read message");
+
+        // Assert
+        assert_eq!(SocketAddr::from(([192, 168, 1, 248], 0x1234)), req2.binding_address);
+        assert_eq!(0x123, req2.mtu);
+        assert_eq!(0x123456789ABCDEF0, req2.guid);
+    }
+
+    #[test]
+    fn read_open_connection_request_2_with_security_no_challenge() {
+        // Arrange
+        let buf = vec![
+            0x07, // Message ID: Open Connection Request 2
+            0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
+            0x12, 0x34, 0x56, 0x78, // Cookie: 0x12345678
+            0x00, // Client wrote challenge: 0x00 = false
+            0x04, !192, !168, !1, !248, 0x12, 0x34, // Binding address IPv4: 192.168.1.248, port: 0x1234
+            0x01, 0x23, // MTU: 0x123
+            0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0, // GUID: 0x123456789ABCDEF0
+        ];
+        let mut reader = Cursor::new(buf);
+
+        // Act
+        let req2 = OpenConnectionRequest2Message::read_message_with_security(&mut reader).expect("Failed to read message");
+
+        // Assert
+        assert_eq!(Some((0x12345678u32, None)), req2.cookie_and_challenge);
+        assert_eq!(SocketAddr::from(([192, 168, 1, 248], 0x1234)), req2.binding_address);
+        assert_eq!(0x123, req2.mtu);
+        assert_eq!(0x123456789ABCDEF0, req2.guid);
+    }
+
+    #[test]
+    fn read_open_connection_request_2_with_security_with_challenge() {
+        // Arrange
+        let buf = vec![
+            0x07, // Message ID: Open Connection Request 2
+            0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
+            0x12, 0x34, 0x56, 0x78, // Cookie: 0x12345678
+            0x01, // Client wrote challenge: 0x01 = true
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, // Challenge: 64 bytes
+            0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F,
+            0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F,
+            0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
+            0x04, !192, !168, !1, !248, 0x12, 0x34, // Binding address IPv4: 192.168.1.248, port: 0x1234
+            0x01, 0x23, // MTU: 0x123
+            0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0, // GUID: 0x123456789ABCDEF0
+        ];
+        let mut reader = Cursor::new(buf);
+
+        // Act
+        let req2 = OpenConnectionRequest2Message::read_message_with_security(&mut reader).expect("Failed to read message");
+
+        // Assert
+        assert_eq!(Some((0x12345678u32, Some([
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, // Challenge: 64 bytes
+            0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F,
+            0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F,
+            0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
+            ]))),
+            req2.cookie_and_challenge);
+        assert_eq!(SocketAddr::from(([192, 168, 1, 248], 0x1234)), req2.binding_address);
+        assert_eq!(0x123, req2.mtu);
+        assert_eq!(0x123456789ABCDEF0, req2.guid);
+    }    
 
     #[test]
     fn read_incompatible_protocol_version() {

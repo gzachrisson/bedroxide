@@ -7,6 +7,7 @@ pub enum MessageId {
     UnconnectedPing = 0x01,
     OpenConnectionRequest1 = 0x05,
     OpenConnectionReply1 = 0x06,
+    OpenConnectionRequest2 = 0x07,
     IncompatibleProtocolVersion = 0x19,
     UnconnectedPong = 0x1c,
 }
@@ -25,6 +26,7 @@ impl TryFrom<u8> for MessageId {
             0x01 => Ok(Self::UnconnectedPing),
             0x05 => Ok(Self::OpenConnectionRequest1),
             0x06 => Ok(Self::OpenConnectionReply1),
+            0x07 => Ok(Self::OpenConnectionRequest2),
             0x19 => Ok(Self::IncompatibleProtocolVersion),
             0x1c => Ok(Self::UnconnectedPong),
             _ => Err(RakNetError::UnknownMessageId(value)),

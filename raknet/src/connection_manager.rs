@@ -11,6 +11,7 @@ use crate::{
     messages::{
         OpenConnectionRequest1Message,
         OpenConnectionReply1Message,
+        OpenConnectionRequest2Message,
         UnconnectedPingMessage,
         UnconnectedPongMessage,
         IncompatibleProtocolVersionMessage
@@ -94,7 +95,13 @@ impl<T: DatagramSocket> ConnectionManager<T> {
             Self::handle_open_connection_request1_message(request1, addr, socket, config)?;
             return Ok(true);
         }
-         
+
+        reader.set_position(0);
+        if let Ok(request2) = OpenConnectionRequest2Message::read_message(&mut reader) {
+            Self::handle_open_connection_request2_message(request2, addr, socket, config)?;
+            return Ok(true);
+        }       
+
         debug!("Unhandled message ID: {}", payload[0]);        
         Ok(false)
     }
@@ -126,11 +133,16 @@ impl<T: DatagramSocket> ConnectionManager<T> {
             let mtu = if requested_mtu < MAXIMUM_MTU_SIZE { requested_mtu } else { MAXIMUM_MTU_SIZE };
             let response = OpenConnectionReply1Message {
                 guid: config.guid,
-                security_cookie_and_public_key: None,
+                security_cookie_and_public_key: None, // Security is currently not supported
                 mtu,
             };
             Self::send_message(&response, addr, socket)?
         }
+        Ok(())
+    }
+
+    fn handle_open_connection_request2_message(request2: OpenConnectionRequest2Message, _addr: SocketAddr, _socket: &mut T, _config: &Config) -> Result<(), RakNetError> {
+        debug!("Received Open Connection Request 2: mtu={} guid={} binding_address={:?}", request2.mtu, request2.guid, request2.binding_address);
         Ok(())
     }
 
