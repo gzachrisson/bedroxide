@@ -133,7 +133,7 @@ impl<T: DatagramSocket> ConnectionManager<T> {
             let mtu = if requested_mtu < MAXIMUM_MTU_SIZE { requested_mtu } else { MAXIMUM_MTU_SIZE };
             let response = OpenConnectionReply1Message {
                 guid: config.guid,
-                security_cookie_and_public_key: None, // Security is currently not supported
+                cookie_and_public_key: None, // Security is currently not supported
                 mtu,
             };
             Self::send_message(&response, addr, socket)?
@@ -261,7 +261,7 @@ mod tests {
         let (message, addr) = receive_datagram::<OpenConnectionReply1Message>(&mut datagram_receiver);
         assert_eq!(remote_addr, addr);
         assert_eq!(OWN_GUID, message.guid);
-        assert_eq!(None, message.security_cookie_and_public_key);
+        assert_eq!(None, message.cookie_and_public_key);
         assert_eq!(UDP_HEADER_SIZE + 1 + 16 + 1 + 400, message.mtu);
     } 
 }

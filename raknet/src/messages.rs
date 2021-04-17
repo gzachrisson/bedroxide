@@ -89,7 +89,7 @@ impl RakNetMessageWrite for OpenConnectionRequest1Message {
 
 pub struct OpenConnectionReply1Message {
     pub guid: u64,
-    pub security_cookie_and_public_key: Option<(u32, [u8;64])>,
+    pub cookie_and_public_key: Option<(u32, [u8;64])>,
     pub mtu: u16,
 }
 
@@ -99,7 +99,7 @@ impl RakNetMessageRead for OpenConnectionReply1Message {
         reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID)?;
         let guid = reader.read_u64_be()?;
         let use_security = reader.read_u8()?;
-        let security_cookie_and_public_key = if use_security == 0x01 {
+        let cookie_and_public_key = if use_security == 0x01 {
             let mut public_key = [0u8; 64];
             let cookie = reader.read_u32_be()?;
             reader.read_bytes(&mut public_key)?;
@@ -111,7 +111,7 @@ impl RakNetMessageRead for OpenConnectionReply1Message {
 
         Ok(OpenConnectionReply1Message {
             guid,
-            security_cookie_and_public_key,
+            cookie_and_public_key,
             mtu,
         })
     }
@@ -122,7 +122,7 @@ impl RakNetMessageWrite for OpenConnectionReply1Message {
         writer.write_u8(MessageId::OpenConnectionReply1.into())?;
         writer.write_bytes(&OFFLINE_MESSAGE_ID)?;
         writer.write_u64_be(self.guid)?;
-        if let Some((cookie, public_key)) = self.security_cookie_and_public_key {
+        if let Some((cookie, public_key)) = self.cookie_and_public_key {
             writer.write_u8(0x01)?; // Using security = 0x01
             writer.write_u32_be(cookie)?;
             writer.write_bytes(&public_key)?;
@@ -502,7 +502,7 @@ mod tests {
 
         // Assert
         assert_eq!(0x8877665544332211, reply1.guid);
-        assert_eq!(None, reply1.security_cookie_and_public_key);
+        assert_eq!(None, reply1.cookie_and_public_key);
         assert_eq!(0x0123, reply1.mtu);
     }
 
@@ -530,7 +530,7 @@ mod tests {
             1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0,
             1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4,            
         ])),
-        reply1.security_cookie_and_public_key);
+        reply1.cookie_and_public_key);
         assert_eq!(0x0123, reply1.mtu);
     }
 
@@ -539,7 +539,7 @@ mod tests {
         // Arrange
         let reply1 = OpenConnectionReply1Message {
             guid: 0x8877665544332211,
-            security_cookie_and_public_key: None,
+            cookie_and_public_key: None,
             mtu: 0x0123,
         };
         let mut buf = Vec::new();
@@ -563,7 +563,7 @@ mod tests {
         // Arrange
         let reply1 = OpenConnectionReply1Message {
             guid: 0x8877665544332211,
-            security_cookie_and_public_key: Some((0x11223344,[
+            cookie_and_public_key: Some((0x11223344,[
                 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0,
                 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4,   
             ])),
