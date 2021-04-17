@@ -1,31 +1,17 @@
-use std::{
-    io::Cursor,
-    net::{SocketAddr},
-};
-
 use log::{error, debug};
 
 use crate::{
+    communicator::Communicator,
     config::Config,
-    constants::{RAKNET_PROTOCOL_VERSION, UDP_HEADER_SIZE, MAXIMUM_MTU_SIZE},
-    messages::{
-        OpenConnectionRequest1Message,
-        OpenConnectionReply1Message,
-        OpenConnectionRequest2Message,
-        UnconnectedPingMessage,
-        UnconnectedPongMessage,
-        IncompatibleProtocolVersionMessage
-    },
-    RakNetError,
-    reader::{RakNetMessageRead},
+    constants::MAXIMUM_MTU_SIZE,
+    offline_packet_handler::OfflinePacketHandler,
     socket::DatagramSocket,
     utils,
-    writer::{RakNetMessageWrite},
 };
 
 pub struct ConnectionManager<T: DatagramSocket> {
-    socket: T,
-    config: Config,
+    communicator: Communicator<T>,
+    offline_packet_handler: OfflinePacketHandler,
     receive_buffer: Vec<u8>,
 }
 
@@ -33,8 +19,8 @@ impl<T: DatagramSocket> ConnectionManager<T> {
     pub fn new(socket: T, config: Config) -> Self {
         let receive_buffer = vec![0u8; MAXIMUM_MTU_SIZE.into()];
         ConnectionManager {
-            socket,
-            config,
+            communicator: Communicator::new(socket, config),
+            offline_packet_handler: OfflinePacketHandler::new(),
             receive_buffer,
         }
     }
@@ -43,9 +29,7 @@ impl<T: DatagramSocket> ConnectionManager<T> {
     /// If the response is longer than 399 bytes it will be truncated.
     pub fn set_offline_ping_response(&mut self, ping_response: Vec<u8>) 
     {
-        let mut ping_response = ping_response;
-        ping_response.truncate(399);
-        self.config.ping_response = ping_response;
+        self.offline_packet_handler.set_offline_ping_response(ping_response);
     }
 
     /// Sends and receives packages/events and updates connections.
@@ -53,11 +37,11 @@ impl<T: DatagramSocket> ConnectionManager<T> {
         // Process all incoming packets
         loop
         {
-            match self.socket.receive_datagram(self.receive_buffer.as_mut())
+            match self.communicator.socket().receive_datagram(self.receive_buffer.as_mut())
             {
                 Ok((payload, addr)) => {
                     debug!("Received {} bytes from {}: {}", payload.len(), addr, utils::to_hex(&payload, 40));
-                    match Self::process_offline_packet(addr, payload, &mut self.socket, &self.config)
+                    match self.offline_packet_handler.process_offline_packet(addr, payload, &mut self.communicator)
                     {
                         Ok(true) => continue,
                         Ok(false) => { 
@@ -75,84 +59,6 @@ impl<T: DatagramSocket> ConnectionManager<T> {
             }
         }
     }
-
-    fn process_offline_packet(addr: SocketAddr, payload: &[u8], socket: &mut T, config: &Config) -> Result<bool, RakNetError>
-    {        
-        let mut reader = Cursor::new(payload);
-        if let Ok(ping) = UnconnectedPingMessage::read_message(&mut reader) {
-            Self::handle_unconnected_ping_message(ping, addr, socket, config)?;
-            return Ok(true);
-        }
-        
-        reader.set_position(0);
-        if let Ok(pong) = UnconnectedPongMessage::read_message(&mut reader) {
-            Self::handle_unconnected_pong_message(pong)?;
-            return Ok(true);
-        }
-
-        reader.set_position(0);
-        if let Ok(request1) = OpenConnectionRequest1Message::read_message(&mut reader) {
-            Self::handle_open_connection_request1_message(request1, addr, socket, config)?;
-            return Ok(true);
-        }
-
-        reader.set_position(0);
-        if let Ok(request2) = OpenConnectionRequest2Message::read_message(&mut reader) {
-            Self::handle_open_connection_request2_message(request2, addr, socket, config)?;
-            return Ok(true);
-        }       
-
-        debug!("Unhandled message ID: {}", payload[0]);        
-        Ok(false)
-    }
-
-    fn handle_unconnected_ping_message(ping: UnconnectedPingMessage, addr: SocketAddr, socket: &mut T, config: &Config) -> Result<(), RakNetError> {
-        debug!("Received Unconnected Ping: time={}, client_guid={}", ping.time, ping.client_guid);
-        let pong = UnconnectedPongMessage { time: ping.time, guid: config.guid, data: config.ping_response.clone() };
-        Self::send_message(&pong, addr, socket)?;
-        debug!("Sent Unconnected Pong");
-        Ok(())
-    }
-
-    fn handle_unconnected_pong_message(pong: UnconnectedPongMessage) -> Result<(), RakNetError> {
-        debug!("Received Unconnected Pong: time={}, guid={}, data={:?}", pong.time, pong.guid, utils::to_hex(&pong.data, 40));
-        // TODO: Forward event to user
-        Ok(())
-    }
-
-    fn handle_open_connection_request1_message(request1: OpenConnectionRequest1Message, addr: SocketAddr, socket: &mut T, config: &Config) -> Result<(), RakNetError> {
-        debug!("Received Open Connection Request 1: protocol_version={}, padding_length={}", request1.protocol_version, request1.padding_length);
-        if request1.protocol_version != RAKNET_PROTOCOL_VERSION {
-            let response = IncompatibleProtocolVersionMessage {
-                protocol_version: RAKNET_PROTOCOL_VERSION,
-                guid: config.guid,
-            };
-            Self::send_message(&response, addr, socket)?;
-        } else {
-            let requested_mtu = UDP_HEADER_SIZE + 1 + 16 + 1 + request1.padding_length;
-            let mtu = if requested_mtu < MAXIMUM_MTU_SIZE { requested_mtu } else { MAXIMUM_MTU_SIZE };
-            let response = OpenConnectionReply1Message {
-                guid: config.guid,
-                cookie_and_public_key: None, // Security is currently not supported
-                mtu,
-            };
-            Self::send_message(&response, addr, socket)?
-        }
-        Ok(())
-    }
-
-    fn handle_open_connection_request2_message(request2: OpenConnectionRequest2Message, _addr: SocketAddr, _socket: &mut T, _config: &Config) -> Result<(), RakNetError> {
-        debug!("Received Open Connection Request 2: mtu={} guid={} binding_address={:?}", request2.mtu, request2.guid, request2.binding_address);
-        Ok(())
-    }
-
-    fn send_message(message: &dyn RakNetMessageWrite, dest: SocketAddr, socket: &mut T) -> Result<(), RakNetError> {
-        let mut payload = Vec::new();
-        message.write_message(&mut payload)?;
-        socket.send_datagram(&payload, dest)?;
-        debug!("Sent {} bytes to {}: {}", payload.len(), dest, utils::to_hex(&payload, 40));
-        Ok(())
-    }   
 }
 
 #[cfg(test)]

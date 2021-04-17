@@ -5,12 +5,14 @@ pub use crate::{
     writer::RakNetWrite,
 };
 
+mod communicator;
 mod config;
 mod connection_manager;
 mod constants;
 mod error;
 mod message_ids;
 mod messages;
+mod offline_packet_handler;
 mod peer;
 mod reader;
 mod socket;
