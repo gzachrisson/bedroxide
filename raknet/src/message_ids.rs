@@ -2,7 +2,7 @@ use core::convert::TryFrom;
 
 use super::RakNetError;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum MessageId {
     UnconnectedPing = 0x01,
     UnconnectedPingOpenConnections = 0x02,

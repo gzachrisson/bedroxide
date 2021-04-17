@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::{convert::TryFrom, net::SocketAddr};
 
 use crate::{
     constants::OFFLINE_MESSAGE_ID,
@@ -225,6 +225,38 @@ impl RakNetMessageWrite for IncompatibleProtocolVersionMessage {
     }
 }
 
+/// Error message used by `MessageId::NoFreeIncomingConnections`,
+/// `MessageId::ConnectionBanned`, `MessageId::AlreadyConnected` and
+/// `MessageId::IpRecentlyConnected`.
+pub struct ConnectErrorMessage {
+    pub message_id: MessageId,
+    pub guid: u64,
+}
+
+impl RakNetMessageRead for ConnectErrorMessage {
+    fn read_message(reader: &mut dyn RakNetRead) -> Result<Self, RakNetError> {
+        let message_id = match MessageId::try_from(reader.read_u8()?) {
+            Ok(MessageId::NoFreeIncomingConnections) => MessageId::NoFreeIncomingConnections,
+            Ok(MessageId::ConnectionBanned) => MessageId::ConnectionBanned,
+            Ok(MessageId::AlreadyConnected) => MessageId::AlreadyConnected,
+            Ok(MessageId::IpRecentlyConnected) => MessageId::IpRecentlyConnected,
+            _ => return Err(RakNetError::InvalidData),
+        };
+        reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID)?;
+        let guid = reader.read_u64_be()?;
+        Ok(ConnectErrorMessage { message_id, guid })
+    }
+}
+
+impl RakNetMessageWrite for ConnectErrorMessage {
+    fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<(), RakNetError> {
+        writer.write_u8(self.message_id.into())?;
+        writer.write_bytes(&OFFLINE_MESSAGE_ID)?;
+        writer.write_u64_be(self.guid)?;
+        Ok(())      
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -234,13 +266,16 @@ mod tests {
 
     use crate::{
         error::RakNetError,
+        message_ids::MessageId,
         messages::{
+            ConnectErrorMessage,
+            IncompatibleProtocolVersionMessage,
             UnconnectedPingMessage,
             UnconnectedPongMessage,
-            OpenConnectionRequest1Message,
             OpenConnectionReply1Message,
+            OpenConnectionRequest1Message,
             OpenConnectionRequest2Message,
-            IncompatibleProtocolVersionMessage},
+        },
         reader::RakNetMessageRead,
         writer::RakNetMessageWrite,
     };
@@ -729,4 +764,160 @@ mod tests {
         ],
         buf);
     }
+
+    #[test]
+    fn read_no_free_incoming_connections() {
+        // Arrange
+        let buf = vec![
+            0x14, // Message ID: No Free Incoming Connections
+            0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
+            0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Guid: 0x8877665544332211
+        ];
+        let mut reader = Cursor::new(buf);
+
+        // Act
+        let message = ConnectErrorMessage::read_message(&mut reader).expect("Failed to message");
+
+        // Assert
+        assert_eq!(MessageId::NoFreeIncomingConnections, message.message_id);
+        assert_eq!(0x8877665544332211, message.guid);
+    }      
+
+    #[test]
+    fn write_no_free_incoming_connections() {
+        // Arrange
+        let message = ConnectErrorMessage {
+            message_id: MessageId::NoFreeIncomingConnections,
+            guid: 0x8877665544332211,
+        };
+        let mut buf = Vec::new();
+
+        // Act
+        message.write_message(&mut buf).expect("Could not write message");
+
+        // Assert
+        assert_eq!(vec![
+            0x14, // Message ID: No Free Incoming Connections
+            0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
+            0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Guid: 0x8877665544332211
+        ],
+        buf);
+    }
+
+    #[test]
+    fn read_connection_banned() {
+        // Arrange
+        let buf = vec![
+            0x17, // Message ID: Connection Banned
+            0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
+            0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Guid: 0x8877665544332211
+        ];
+        let mut reader = Cursor::new(buf);
+
+        // Act
+        let message = ConnectErrorMessage::read_message(&mut reader).expect("Failed to message");
+
+        // Assert
+        assert_eq!(MessageId::ConnectionBanned, message.message_id);
+        assert_eq!(0x8877665544332211, message.guid);
+    }
+
+    #[test]
+    fn write_connection_banned() {
+        // Arrange
+        let message = ConnectErrorMessage {
+            message_id: MessageId::ConnectionBanned,
+            guid: 0x8877665544332211,
+        };
+        let mut buf = Vec::new();
+
+        // Act
+        message.write_message(&mut buf).expect("Could not write message");
+
+        // Assert
+        assert_eq!(vec![
+            0x17, // Message ID: Connection Banned
+            0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
+            0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Guid: 0x8877665544332211
+        ],
+        buf);
+    }
+
+    #[test]
+    fn read_already_connected() {
+        // Arrange
+        let buf = vec![
+            0x12, // Message ID: Already Connected
+            0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
+            0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Guid: 0x8877665544332211
+        ];
+        let mut reader = Cursor::new(buf);
+
+        // Act
+        let message = ConnectErrorMessage::read_message(&mut reader).expect("Failed to message");
+
+        // Assert
+        assert_eq!(MessageId::AlreadyConnected, message.message_id);
+        assert_eq!(0x8877665544332211, message.guid);
+    }
+
+    #[test]
+    fn write_already_connected() {
+        // Arrange
+        let message = ConnectErrorMessage {
+            message_id: MessageId::AlreadyConnected,
+            guid: 0x8877665544332211,
+        };
+        let mut buf = Vec::new();
+
+        // Act
+        message.write_message(&mut buf).expect("Could not write message");
+
+        // Assert
+        assert_eq!(vec![
+            0x12, // Message ID: Already Connected
+            0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
+            0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Guid: 0x8877665544332211
+        ],
+        buf);
+    }
+
+    #[test]
+    fn read_ip_recently_connected() {
+        // Arrange
+        let buf = vec![
+            0x1a, // Message ID: IP Recently Connected
+            0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
+            0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Guid: 0x8877665544332211
+        ];
+        let mut reader = Cursor::new(buf);
+
+        // Act
+        let message = ConnectErrorMessage::read_message(&mut reader).expect("Failed to message");
+
+        // Assert
+        assert_eq!(MessageId::IpRecentlyConnected, message.message_id);
+        assert_eq!(0x8877665544332211, message.guid);
+    }
+
+    #[test]
+    fn write_ip_recently_connected() {
+        // Arrange
+        let message = ConnectErrorMessage {
+            message_id: MessageId::IpRecentlyConnected,
+            guid: 0x8877665544332211,
+        };
+        let mut buf = Vec::new();
+
+        // Act
+        message.write_message(&mut buf).expect("Could not write message");
+
+        // Assert
+        assert_eq!(vec![
+            0x1a, // Message ID: IP Recently Connected
+            0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
+            0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Guid: 0x8877665544332211
+        ],
+        buf);
+    }    
 }

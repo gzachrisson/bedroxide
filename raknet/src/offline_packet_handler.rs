@@ -21,7 +21,6 @@ use crate::{
     writer::RakNetMessageWrite,
 };
 
-
 pub struct  OfflinePacketHandler {   
     ping_response: Vec<u8>,
 }
@@ -42,8 +41,15 @@ impl OfflinePacketHandler {
         self.ping_response = ping_response;
     }
 
+    /// Process a possible offline packet.
+    /// Returns true if the packet was handled.
     pub fn process_offline_packet(&self, addr: SocketAddr, payload: &[u8], communicator: &mut Communicator<impl DatagramSocket>) -> Result<bool, RakNetError>
     {
+        if payload.len() <= 2 {
+            debug!("Received too short packet. Length: {} bytes", payload.len());
+            return Ok(true);
+        }
+
         let mut reader = Cursor::new(payload);
         match MessageId::try_from(payload[0]) {
             Ok(MessageId::UnconnectedPing) => {
@@ -106,13 +112,7 @@ impl OfflinePacketHandler {
                 // TODO: Implement
                 return Ok(true);
             },
-            _ => {
-                if payload.len() <= 2 {
-                    return Ok(true);
-                } else {
-                    return Ok(false);
-                }                
-            }
+            _ => return Ok(false),
         }
         return Ok(false);
     }
