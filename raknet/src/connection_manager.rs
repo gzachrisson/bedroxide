@@ -1,8 +1,11 @@
+use std::{net::SocketAddr, collections::HashMap};
+
 use log::{error, debug};
 
 use crate::{
     communicator::Communicator,
     config::Config,
+    connection::Connection,
     constants::MAXIMUM_MTU_SIZE,
     offline_packet_handler::OfflinePacketHandler,
     socket::DatagramSocket,
@@ -11,6 +14,7 @@ use crate::{
 
 pub struct ConnectionManager<T: DatagramSocket> {
     communicator: Communicator<T>,
+    connections: HashMap<SocketAddr, Connection>,
     offline_packet_handler: OfflinePacketHandler,
     receive_buffer: Vec<u8>,
 }
@@ -20,6 +24,7 @@ impl<T: DatagramSocket> ConnectionManager<T> {
         let receive_buffer = vec![0u8; MAXIMUM_MTU_SIZE.into()];
         ConnectionManager {
             communicator: Communicator::new(socket, config),
+            connections: HashMap::new(),
             offline_packet_handler: OfflinePacketHandler::new(),
             receive_buffer,
         }
@@ -41,7 +46,7 @@ impl<T: DatagramSocket> ConnectionManager<T> {
             {
                 Ok((payload, addr)) => {
                     debug!("Received {} bytes from {}: {}", payload.len(), addr, utils::to_hex(&payload, 40));
-                    match self.offline_packet_handler.process_offline_packet(addr, payload, &mut self.communicator)
+                    match self.offline_packet_handler.process_offline_packet(addr, payload, &mut self.communicator, &mut self.connections)
                     {
                         Ok(true) => continue,
                         Ok(false) => { 
@@ -73,16 +78,19 @@ mod tests {
         connection_manager::ConnectionManager,
         constants::{RAKNET_PROTOCOL_VERSION, UDP_HEADER_SIZE},
         messages::{
+            IncompatibleProtocolVersionMessage,
+            OpenConnectionReply1Message,
+            OpenConnectionReply2Message,
+            OpenConnectionRequest1Message,
+            OpenConnectionRequest2Message,
             UnconnectedPingMessage,
             UnconnectedPongMessage,
-            OpenConnectionRequest1Message,
-            OpenConnectionReply1Message,
-            IncompatibleProtocolVersionMessage
         },
         reader::RakNetMessageRead,
         socket::FakeDatagramSocket,
         writer::RakNetMessageWrite,
     };
+    
     const OWN_GUID: u64 = 0xFEDCBA9876453210;
 
     fn create_connection_manager() -> (ConnectionManager<FakeDatagramSocket>, Sender<(Vec<u8>, SocketAddr)>, Receiver<(Vec<u8>, SocketAddr)>, SocketAddr) {
@@ -169,5 +177,29 @@ mod tests {
         assert_eq!(OWN_GUID, message.guid);
         assert_eq!(None, message.cookie_and_public_key);
         assert_eq!(UDP_HEADER_SIZE + 1 + 16 + 1 + 400, message.mtu);
-    } 
+    }
+
+    #[test]
+    fn open_connection_request_2_responds_with_reply_2() {
+        // Arrange
+        let (mut connection_manager, mut datagram_sender, mut datagram_receiver, remote_addr) = create_connection_manager();
+        let req2 = OpenConnectionRequest2Message {
+            cookie_and_challenge: None,
+            binding_address: SocketAddr::from(([192, 168, 1, 248], 0x1234)),
+            mtu: 446,
+            guid: 0x12345678,
+        };
+        send_datagram(req2, &mut datagram_sender, remote_addr);
+
+        // Act
+        connection_manager.process();
+
+        // Assert
+        let (message, addr) = receive_datagram::<OpenConnectionReply2Message>(&mut datagram_receiver);
+        assert_eq!(remote_addr, addr);
+        assert_eq!(OWN_GUID, message.guid);
+        assert_eq!(remote_addr, message.client_address);
+        assert_eq!(446, message.mtu);
+        assert_eq!(None, message.challenge_answer);
+    }     
 }
