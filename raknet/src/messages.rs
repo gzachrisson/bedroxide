@@ -9,23 +9,28 @@ use crate::{
 };
 
 pub struct UnconnectedPingMessage {
+    pub message_id: MessageId,
     pub time: u64,
     pub client_guid: u64,
 }
 
 impl RakNetMessageRead for UnconnectedPingMessage {
     fn read_message(reader: &mut dyn RakNetRead) -> Result<Self, RakNetError> {
-        reader.read_u8_and_compare(MessageId::UnconnectedPing.into())?;
+        let message_id = match MessageId::try_from(reader.read_u8()?) {
+            Ok(MessageId::UnconnectedPing) => MessageId::UnconnectedPing,
+            Ok(MessageId::UnconnectedPingOpenConnections) => MessageId::UnconnectedPingOpenConnections,
+            _ => return Err(RakNetError::InvalidData),
+        };
         let time = reader.read_u64_be()?;
         reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID)?;
         let client_guid = reader.read_u64_be()?;
-        Ok(UnconnectedPingMessage { time, client_guid })
+        Ok(UnconnectedPingMessage { message_id, time, client_guid })
     }
 }
 
 impl RakNetMessageWrite for UnconnectedPingMessage {
     fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<(), RakNetError> {
-        writer.write_u8(MessageId::UnconnectedPing.into())?;
+        writer.write_u8(self.message_id.into())?;
         writer.write_u64_be(self.time)?;
         writer.write_bytes(&OFFLINE_MESSAGE_ID)?;
         writer.write_u64_be(self.client_guid)?;
@@ -91,6 +96,16 @@ pub struct OpenConnectionReply1Message {
     pub guid: u64,
     pub cookie_and_public_key: Option<(u32, [u8;64])>,
     pub mtu: u16,
+}
+
+impl OpenConnectionReply1Message {
+    pub fn new(guid: u64, cookie_and_public_key: Option<(u32, [u8;64])>, mtu: u16) -> Self {
+        OpenConnectionReply1Message {
+            guid,
+            cookie_and_public_key,
+            mtu,
+        }
+    }
 }
 
 impl RakNetMessageRead for OpenConnectionReply1Message {
@@ -207,6 +222,17 @@ pub struct OpenConnectionReply2Message {
     pub challenge_answer: Option<[u8; 128]>,
 }
 
+impl OpenConnectionReply2Message {
+    pub fn new(guid: u64, client_address: SocketAddr, mtu: u16, challenge_answer: Option<[u8; 128]>) -> Self {
+        OpenConnectionReply2Message {
+            guid,
+            client_address,    
+            mtu,
+            challenge_answer,
+        }
+    }
+}
+
 impl RakNetMessageRead for OpenConnectionReply2Message {
     fn read_message(reader: &mut dyn RakNetRead) -> Result<Self, RakNetError> {
         reader.read_u8_and_compare(MessageId::OpenConnectionReply2.into())?;
@@ -254,6 +280,15 @@ pub struct IncompatibleProtocolVersionMessage {
     pub guid: u64,
 }
 
+impl IncompatibleProtocolVersionMessage {
+    pub fn new(protocol_version: u8, guid: u64) -> Self {
+        IncompatibleProtocolVersionMessage {
+            protocol_version,
+            guid,
+        }
+    }
+}
+
 impl RakNetMessageRead for IncompatibleProtocolVersionMessage {
     fn read_message(reader: &mut dyn RakNetRead) -> Result<Self, RakNetError> {
         reader.read_u8_and_compare(MessageId::IncompatibleProtocolVersion.into())?;
@@ -280,6 +315,15 @@ impl RakNetMessageWrite for IncompatibleProtocolVersionMessage {
 pub struct ConnectErrorMessage {
     pub message_id: MessageId,
     pub guid: u64,
+}
+
+impl ConnectErrorMessage {
+    pub fn new(message_id: MessageId, guid: u64) -> Self {
+        ConnectErrorMessage {
+            message_id,
+            guid,
+        }
+    }
 }
 
 impl RakNetMessageRead for ConnectErrorMessage {
@@ -375,6 +419,7 @@ mod tests {
     fn write_unconnected_ping() {
         // Arrange
         let ping = UnconnectedPingMessage {
+            message_id: MessageId::UnconnectedPing,
             time: 0x0123456789ABCDEF,
             client_guid: 0x8877665544332211,
         };

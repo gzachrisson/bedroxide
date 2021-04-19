@@ -1,13 +1,15 @@
 pub struct Connection {
     guid: u64,
+    is_incoming: bool,
     mtu: u16,
     pub state: ConnectionState,
 }
 
 impl Connection {
-    pub fn new(guid: u64, mtu: u16) -> Connection {
+    pub fn new(guid: u64, is_incoming: bool, mtu: u16) -> Connection {
         Connection {
             guid,
+            is_incoming,
             mtu,
             state: ConnectionState::UnverifiedSender,
         }
@@ -22,6 +24,12 @@ impl Connection {
     pub fn mtu(&self) -> u16 {
         self.mtu
     }
+
+    /// Returns true if the connection was initiated
+    /// by a remote peer.
+    pub fn is_incoming(&self) -> bool {
+        self.is_incoming
+    }
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -33,5 +41,5 @@ pub enum ConnectionState {
     // RequestedConnection,
     // HandlingConnectionRequest,
     UnverifiedSender,
-    // Connected,
+    Connected,
 }

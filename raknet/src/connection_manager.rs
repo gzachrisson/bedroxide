@@ -70,13 +70,14 @@ impl<T: DatagramSocket> ConnectionManager<T> {
 mod tests {
     use std::{
         io::Cursor,
-        net::{SocketAddr},
+        net::SocketAddr,
     };   
     use crossbeam_channel::{Sender, Receiver};
     use crate::{
         config::Config,
         connection_manager::ConnectionManager,
         constants::{RAKNET_PROTOCOL_VERSION, UDP_HEADER_SIZE},
+        message_ids::MessageId,
         messages::{
             IncompatibleProtocolVersionMessage,
             OpenConnectionReply1Message,
@@ -90,7 +91,7 @@ mod tests {
         socket::FakeDatagramSocket,
         writer::RakNetMessageWrite,
     };
-    
+
     const OWN_GUID: u64 = 0xFEDCBA9876453210;
 
     fn create_connection_manager() -> (ConnectionManager<FakeDatagramSocket>, Sender<(Vec<u8>, SocketAddr)>, Receiver<(Vec<u8>, SocketAddr)>, SocketAddr) {
@@ -121,6 +122,7 @@ mod tests {
         // Arrange
         let (mut connection_manager, mut datagram_sender, mut datagram_receiver, remote_addr) = create_connection_manager();
         let ping = UnconnectedPingMessage {
+            message_id: MessageId::UnconnectedPing,
             time: 0x0123456789ABCDEF,
             client_guid: 0x1122334455667788,
         };
