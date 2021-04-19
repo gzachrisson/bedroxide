@@ -39,9 +39,19 @@ impl RakNetMessageWrite for UnconnectedPingMessage {
 }
 
 pub struct UnconnectedPongMessage {
-    pub time: u64,
     pub guid: u64,
+    pub time: u64,
     pub data: Vec<u8>,
+}
+
+impl UnconnectedPongMessage {
+    pub fn new(guid: u64, time: u64, data: Vec<u8>) -> Self {
+        UnconnectedPongMessage {
+            guid,
+            time,
+            data,
+        }
+    }
 }
 
 impl RakNetMessageRead for UnconnectedPongMessage {

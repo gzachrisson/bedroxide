@@ -134,8 +134,8 @@ impl OfflinePacketHandler {
 
     fn handle_unconnected_ping_message(&self, ping: UnconnectedPingMessage, addr: SocketAddr, communicator: &mut Communicator<impl DatagramSocket>) -> Result<(), RakNetError> {
         debug!("Received Unconnected Ping: time={}, client_guid={}", ping.time, ping.client_guid);
-        let pong = UnconnectedPongMessage { time: ping.time, guid: communicator.config().guid, data: self.ping_response.clone() };
         debug!("Sending Unconnected Pong");
+        let pong = UnconnectedPongMessage::new(communicator.config().guid, ping.time, self.ping_response.clone());
         Self::send_message(&pong, addr, communicator)?;
         Ok(())
     }
@@ -149,15 +149,15 @@ impl OfflinePacketHandler {
     fn handle_open_connection_request1_message(&self, request1: OpenConnectionRequest1Message, addr: SocketAddr, communicator: &mut Communicator<impl DatagramSocket>) -> Result<(), RakNetError> {
         debug!("Received Open Connection Request 1: protocol_version={}, padding_length={}", request1.protocol_version, request1.padding_length);
         if request1.protocol_version != RAKNET_PROTOCOL_VERSION {
-            let message = IncompatibleProtocolVersionMessage::new(RAKNET_PROTOCOL_VERSION, communicator.config().guid);
             debug!("Sending Incompatible Protocol Version");
+            let message = IncompatibleProtocolVersionMessage::new(RAKNET_PROTOCOL_VERSION, communicator.config().guid);
             Self::send_message(&message, addr, communicator)?;
         } else {
             let requested_mtu = UDP_HEADER_SIZE + 1 + 16 + 1 + request1.padding_length;
             let mtu = if requested_mtu < MAXIMUM_MTU_SIZE { requested_mtu } else { MAXIMUM_MTU_SIZE };
             // TODO: Add support for security
-            let response = OpenConnectionReply1Message::new(communicator.config().guid, None, mtu);
             debug!("Sending Open Connection Reply 1");
+            let response = OpenConnectionReply1Message::new(communicator.config().guid, None, mtu);
             Self::send_message(&response, addr, communicator)?
         }
         Ok(())
@@ -187,8 +187,8 @@ impl OfflinePacketHandler {
                 // Duplicate connection request due to packet loss
                 // Resend the reply
                 // TODO: Add support for security (resend challenge answer)
-                let reply2 = OpenConnectionReply2Message::new(communicator.config().guid, addr, conn.mtu(), None);
                 debug!("Sending Open Connection Reply2 (connection already exists)");
+                let reply2 = OpenConnectionReply2Message::new(communicator.config().guid, addr, conn.mtu(), None);
                 Self::send_message(&reply2, addr, communicator)?;
                 return Ok(());
             }
@@ -196,15 +196,15 @@ impl OfflinePacketHandler {
 
         if guid_in_use || addr_in_use {
             // GUID or IP address already in use
-            let message = ConnectErrorMessage::new(MessageId::AlreadyConnected, communicator.config().guid);
             debug!("Sending Already Connected");
+            let message = ConnectErrorMessage::new(MessageId::AlreadyConnected, communicator.config().guid);
             Self::send_message(&message, addr, communicator)?;
             return Ok(());
         }
 
         if !Self::allow_incoming_connections(communicator.config(), connections) {
-            let message = ConnectErrorMessage::new(MessageId::NoFreeIncomingConnections, communicator.config().guid);
             debug!("Sending No Free Incoming Connections");
+            let message = ConnectErrorMessage::new(MessageId::NoFreeIncomingConnections, communicator.config().guid);
             Self::send_message(&message, addr, communicator)?;
             return Ok(());
         }
@@ -212,12 +212,12 @@ impl OfflinePacketHandler {
         // TODO: Check if this IP has connected the last 100 ms. If so, send MessageId::IpRecentlyConnected.
         // TODO: Check that the MTU is within our accepted range
 
-        let conn = Connection::new(request2.guid, true, request2.mtu);
+        let conn = Connection::incoming(request2.guid, request2.mtu);
         connections.insert(addr, conn);
 
         // TODO: Add support for security and supply challenge answer.
-        let reply2 = OpenConnectionReply2Message::new(communicator.config().guid, addr, request2.mtu, None);
         debug!("Sending Open Connection Reply 2");
+        let reply2 = OpenConnectionReply2Message::new(communicator.config().guid, addr, request2.mtu, None);
         Self::send_message(&reply2, addr, communicator)?;
 
         Ok(())

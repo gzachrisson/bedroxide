@@ -6,10 +6,10 @@ pub struct Connection {
 }
 
 impl Connection {
-    pub fn new(guid: u64, is_incoming: bool, mtu: u16) -> Connection {
+    pub fn incoming(guid: u64, mtu: u16) -> Connection {
         Connection {
             guid,
-            is_incoming,
+            is_incoming: true,
             mtu,
             state: ConnectionState::UnverifiedSender,
         }
