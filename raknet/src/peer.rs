@@ -41,8 +41,15 @@ pub enum Command
 }
 
 impl RakNetPeer {
-    /// Creates a RakNetPeer and binds it to a UDP socket on the specified address.
+    /// Creates a RakNetPeer with a default `Config` and binds it to
+    /// a UDP socket on the specified address.
     pub fn bind<A: ToSocketAddrs>(addr: A) -> Result<Self, RakNetError> {
+        Self::bind_with_config(addr, Config::default())
+    }
+
+    /// Creates a RakNetPeer with the specified `Config` and binds it to
+    /// a UDP socket on the specified address.
+    pub fn bind_with_config<A: ToSocketAddrs>(addr: A, config: Config) -> Result<Self, RakNetError> {
         info!("Binding socket");
         let socket = UdpSocket::bind(addr)?;
         socket.set_broadcast(true)?;
@@ -52,7 +59,7 @@ impl RakNetPeer {
 
         let (command_sender, command_receiver) = unbounded();
         Ok(RakNetPeer {
-            connection_manager: ConnectionManager::new(socket, Config::default()),
+            connection_manager: ConnectionManager::new(socket, config),
             command_sender,
             command_receiver,           
         })

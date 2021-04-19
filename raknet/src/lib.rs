@@ -1,5 +1,6 @@
 pub use crate::{
-    error::RakNetError,
+    config::Config,
+    error::RakNetError,    
     peer::{RakNetPeer, Command},
     reader::RakNetRead,
     writer::RakNetWrite,
