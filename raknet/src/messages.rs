@@ -399,6 +399,7 @@ mod tests {
         let ping = UnconnectedPingMessage::read_message(&mut reader).expect("Failed to read unconnected ping");
 
         // Assert
+        assert_eq!(MessageId::UnconnectedPing, ping.message_id);
         assert_eq!(0x0123456789ABCDEF, ping.time);
         assert_eq!(0x8877665544332211, ping.client_guid);
     }
@@ -446,7 +447,49 @@ mod tests {
             0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Client guid: 0x8877665544332211
         ],
         buf);
+    }
 
+    #[test]
+    fn read_unconnected_ping_open_connections() {
+        // Arrange
+        let buf = vec![
+            0x02, // Message ID: Unconnected ping open connections
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, // Time: 0x0123456789ABCDEF
+            0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
+            0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Client guid: 0x8877665544332211
+        ];
+        let mut reader = Cursor::new(buf);
+
+        // Act
+        let ping = UnconnectedPingMessage::read_message(&mut reader).expect("Failed to read unconnected ping");
+
+        // Assert
+        assert_eq!(MessageId::UnconnectedPingOpenConnections, ping.message_id);
+        assert_eq!(0x0123456789ABCDEF, ping.time);
+        assert_eq!(0x8877665544332211, ping.client_guid);
+    }
+
+    #[test]
+    fn write_unconnected_ping_open_connections() {
+        // Arrange
+        let ping = UnconnectedPingMessage {
+            message_id: MessageId::UnconnectedPingOpenConnections,
+            time: 0x0123456789ABCDEF,
+            client_guid: 0x8877665544332211,
+        };
+        let mut buf = Vec::new();
+
+        // Act
+        ping.write_message(&mut buf).expect("Could not write ping message");
+
+        // Assert
+        assert_eq!(vec![
+            0x02, // Message ID: Unconnected ping open connections
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, // Time: 0x0123456789ABCDEF
+            0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
+            0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Client guid: 0x8877665544332211
+        ],
+        buf);
     }
 
     #[test]

@@ -239,3 +239,69 @@ impl OfflinePacketHandler {
         Ok(())
     }   
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::HashMap, io::Cursor, net::SocketAddr};
+    use crossbeam_channel::Receiver;
+
+    use crate::{        
+        communicator::Communicator,
+        config::Config,
+        connection::Connection,
+        messages::{OpenConnectionRequest2Message, OpenConnectionReply2Message},
+        offline_packet_handler::OfflinePacketHandler,
+        reader::RakNetMessageRead,
+        socket::FakeDatagramSocket,
+        writer::RakNetMessageWrite,
+    };
+
+    const OWN_GUID: u64 = 0xFEDCBA9876453210;
+    const REMOTE_GUID: u64 = 0xAABBCCDDEEFF0011;
+
+    fn create_test_setup() -> (OfflinePacketHandler, Communicator<FakeDatagramSocket>, HashMap<SocketAddr, Connection>, Receiver<(Vec<u8>, SocketAddr)>, SocketAddr, SocketAddr) {
+        let socket = FakeDatagramSocket::new();
+        let datagram_receiver = socket.get_datagram_receiver();
+        let mut config = Config::default();
+        config.guid = OWN_GUID;
+        let communicator = Communicator::new(socket, config);
+        let connections = HashMap::<SocketAddr, Connection>::new();
+        let remote_addr = "192.168.1.1:19132".parse::<SocketAddr>().expect("Could not create address");
+        let own_addr = "127.0.0.1:19132".parse::<SocketAddr>().expect("Could not create address");
+        (OfflinePacketHandler::new(), communicator, connections, datagram_receiver, remote_addr, own_addr)
+    }
+
+    fn receive_datagram<M: RakNetMessageRead>(datagram_receiver: &mut Receiver<(Vec<u8>, SocketAddr)>) -> (M, SocketAddr) {
+        let (payload, addr) = datagram_receiver.try_recv().expect("Datagram not received");
+        let mut reader = Cursor::new(payload);
+        let message = M::read_message(&mut reader).expect("Could not parse message");
+        (message, addr)
+    }
+
+    #[test]
+    fn open_connection_request_2_guid_and_addr_in_use_by_remote() {
+        // Arrange
+        let (handler, mut communicator, mut connections, mut datagram_receiver, remote_addr, own_addr) = create_test_setup();
+        let mut payload = Vec::new();
+        let message = OpenConnectionRequest2Message {
+            cookie_and_challenge: None,
+            binding_address: own_addr,
+            mtu: 1024,
+            guid: REMOTE_GUID,
+        };
+        message.write_message(&mut payload).expect("Could not write message");
+        connections.insert(remote_addr, Connection::incoming(REMOTE_GUID, 1024));
+
+        // Act
+        let handled = handler.process_offline_packet(remote_addr, &payload, &mut communicator, &mut connections).expect("Could not process packet");
+
+        // Assert
+        let (message, addr) = receive_datagram::<OpenConnectionReply2Message>(&mut datagram_receiver);
+        assert_eq!(true, handled);
+        assert_eq!(remote_addr, addr);
+        assert_eq!(OWN_GUID, message.guid);
+        assert_eq!(remote_addr, message.client_address);
+        assert_eq!(1024, message.mtu);
+        assert_eq!(None, message.challenge_answer);
+    }
+}
