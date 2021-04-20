@@ -224,6 +224,10 @@ impl OfflinePacketHandler {
     }
 
     fn allow_incoming_connections(config: &Config, connections: &HashMap<SocketAddr, Connection>) -> bool {
+        // TODO: Revisit the logic below.
+        // This logic is from the original RakNet C++ implementation. That we filter on ConnectionState::Connected
+        // means that more incoming connections than `config.max_incoming_connections` are allowed as long as
+        // they are in another state.
         let number_of_incoming_connections = connections.iter()
             .filter(|(_addr, conn)| conn.is_incoming() && conn.state == ConnectionState::Connected)
             .count();
@@ -248,8 +252,9 @@ mod tests {
     use crate::{        
         communicator::Communicator,
         config::Config,
-        connection::Connection,
-        messages::{OpenConnectionRequest2Message, OpenConnectionReply2Message},
+        connection::{Connection, ConnectionState},
+        message_ids::MessageId,
+        messages::{ConnectErrorMessage, OpenConnectionRequest2Message, OpenConnectionReply2Message},
         offline_packet_handler::OfflinePacketHandler,
         reader::RakNetMessageRead,
         socket::FakeDatagramSocket,
@@ -260,16 +265,20 @@ mod tests {
     const REMOTE_GUID: u64 = 0xAABBCCDDEEFF0011;
 
     fn create_test_setup() -> (OfflinePacketHandler, Communicator<FakeDatagramSocket>, HashMap<SocketAddr, Connection>, Receiver<(Vec<u8>, SocketAddr)>, SocketAddr, SocketAddr) {
-        let socket = FakeDatagramSocket::new();
-        let datagram_receiver = socket.get_datagram_receiver();
         let mut config = Config::default();
         config.guid = OWN_GUID;
+        create_test_setup_with_config(config)
+    }
+
+    fn create_test_setup_with_config(config: Config) -> (OfflinePacketHandler, Communicator<FakeDatagramSocket>, HashMap<SocketAddr, Connection>, Receiver<(Vec<u8>, SocketAddr)>, SocketAddr, SocketAddr) {
+        let socket = FakeDatagramSocket::new();
+        let datagram_receiver = socket.get_datagram_receiver();
         let communicator = Communicator::new(socket, config);
         let connections = HashMap::<SocketAddr, Connection>::new();
         let remote_addr = "192.168.1.1:19132".parse::<SocketAddr>().expect("Could not create address");
         let own_addr = "127.0.0.1:19132".parse::<SocketAddr>().expect("Could not create address");
         (OfflinePacketHandler::new(), communicator, connections, datagram_receiver, remote_addr, own_addr)
-    }
+    }    
 
     fn receive_datagram<M: RakNetMessageRead>(datagram_receiver: &mut Receiver<(Vec<u8>, SocketAddr)>) -> (M, SocketAddr) {
         let (payload, addr) = datagram_receiver.try_recv().expect("Datagram not received");
@@ -304,4 +313,88 @@ mod tests {
         assert_eq!(1024, message.mtu);
         assert_eq!(None, message.challenge_answer);
     }
+
+    #[test]
+    fn open_connection_request_2_guid_in_use_by_other() {
+        // Arrange
+        let (handler, mut communicator, mut connections, mut datagram_receiver, remote_addr, own_addr) = create_test_setup();
+        let mut payload = Vec::new();
+        let message = OpenConnectionRequest2Message {
+            cookie_and_challenge: None,
+            binding_address: own_addr,
+            mtu: 1024,
+            guid: REMOTE_GUID,
+        };
+        message.write_message(&mut payload).expect("Could not write message");
+        let other_addr = "192.168.1.99:19132".parse::<SocketAddr>().expect("Could not create address");
+        connections.insert(other_addr, Connection::incoming(REMOTE_GUID, 1024));
+
+        // Act
+        let handled = handler.process_offline_packet(remote_addr, &payload, &mut communicator, &mut connections).expect("Could not process packet");
+
+        // Assert
+        let (message, addr) = receive_datagram::<ConnectErrorMessage>(&mut datagram_receiver);
+        assert_eq!(true, handled);        
+        assert_eq!(remote_addr, addr);
+        assert_eq!(MessageId::AlreadyConnected, message.message_id);
+        assert_eq!(OWN_GUID, message.guid);
+    }
+
+    #[test]
+    fn open_connection_request_2_addr_in_use_with_other_guid() {
+        // Arrange
+        let (handler, mut communicator, mut connections, mut datagram_receiver, remote_addr, own_addr) = create_test_setup();
+        let mut payload = Vec::new();
+        let message = OpenConnectionRequest2Message {
+            cookie_and_challenge: None,
+            binding_address: own_addr,
+            mtu: 1024,
+            guid: REMOTE_GUID,
+        };
+        message.write_message(&mut payload).expect("Could not write message");
+        let other_guid: u64 = 0x1111111111111111;
+        connections.insert(remote_addr, Connection::incoming(other_guid, 1024));
+
+        // Act
+        let handled = handler.process_offline_packet(remote_addr, &payload, &mut communicator, &mut connections).expect("Could not process packet");
+
+        // Assert
+        let (message, addr) = receive_datagram::<ConnectErrorMessage>(&mut datagram_receiver);
+        assert_eq!(true, handled);        
+        assert_eq!(remote_addr, addr);
+        assert_eq!(MessageId::AlreadyConnected, message.message_id);
+        assert_eq!(OWN_GUID, message.guid);
+    }
+
+    #[test]
+    fn open_connection_request_2_max_incoming_connections_exceeded() {
+        // Arrange
+        let mut config = Config::default();
+        config.guid = OWN_GUID;
+        config.max_incoming_connections = 1;
+        let (handler, mut communicator, mut connections, mut datagram_receiver, remote_addr, own_addr) = create_test_setup_with_config(config);
+        let mut payload = Vec::new();
+        let message = OpenConnectionRequest2Message {
+            cookie_and_challenge: None,
+            binding_address: own_addr,
+            mtu: 1024,
+            guid: REMOTE_GUID,
+        };
+        message.write_message(&mut payload).expect("Could not write message");
+        let other_guid: u64 = 0x1111111111111111;
+        let other_addr = "192.168.1.99:19132".parse::<SocketAddr>().expect("Could not create address");
+        let mut connection = Connection::incoming(other_guid, 1024);
+        connection.state = ConnectionState::Connected;
+        connections.insert(other_addr, connection);
+
+        // Act
+        let handled = handler.process_offline_packet(remote_addr, &payload, &mut communicator, &mut connections).expect("Could not process packet");
+
+        // Assert
+        let (message, addr) = receive_datagram::<ConnectErrorMessage>(&mut datagram_receiver);
+        assert_eq!(true, handled);        
+        assert_eq!(remote_addr, addr);
+        assert_eq!(MessageId::NoFreeIncomingConnections, message.message_id);
+        assert_eq!(OWN_GUID, message.guid);
+    }       
 }
