@@ -1,10 +1,10 @@
 use std::{
-    convert::{TryFrom, TryInto},
+    convert::TryInto,
     io::Read,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV6},
 };
 
-use crate::error::{Error, Result};
+use crate::error::{Error, ReadError, Result};
 
 pub trait RakNetRead {
     fn read_u8(&mut self) -> Result<u8>;
@@ -35,7 +35,7 @@ impl<T> RakNetRead for T where T: Read {
         if buf[0] == data {
             Ok(())
         } else {
-            Err(Error::InvalidData)
+            Err(Error::ReadError(ReadError::CompareFailed))
         }
     }
 
@@ -56,7 +56,7 @@ impl<T> RakNetRead for T where T: Read {
         if buf == data {
             Ok(())
         } else {
-            Err(Error::InvalidData)
+            Err(Error::ReadError(ReadError::CompareFailed))
         }
     }
 
@@ -105,8 +105,11 @@ impl<T> RakNetRead for T where T: Read {
             let n = self.read(&mut buf)?;
             if n == 0 {
                 break;
-            }            
-            padding_length += u16::try_from(n).unwrap(); // n should never be larger than buffer size (=1)
+            }
+            if padding_length == u16::MAX {
+                return Err(ReadError::TooLongZeroPadding.into());
+            }
+            padding_length += 1;
         }
         Ok(padding_length)
     }
@@ -130,7 +133,7 @@ impl<T> RakNetRead for T where T: Read {
                 let scope_id = self.read_u32()?;
                 Ok(SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::from(ip), port, flowinfo, scope_id)))
             },
-            _ => Err(Error::InvalidData),
+            _ => Err(ReadError::InvalidIpVersion.into()),
         }
     }
 }
@@ -157,7 +160,7 @@ mod tests {
         net::SocketAddr,        
     };
 
-    use super::RakNetRead;
+    use crate::RakNetRead;
 
     #[test]
     fn read_socket_addr_ipv4() {

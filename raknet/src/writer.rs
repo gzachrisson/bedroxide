@@ -3,7 +3,7 @@ use std::{
     net::SocketAddr,
 };
 
-use crate::error::{Error, Result};
+use crate::error::{Result, WriteError};
 
 pub trait RakNetWrite {
     fn write_u8(&mut self, b: u8) -> Result<usize>;
@@ -22,7 +22,7 @@ impl<T> RakNetWrite for T where T: Write {
     fn write_u8(&mut self, b: u8) -> Result<usize> {
         let n = self.write(&[b])?;
         if n != 1 {
-            return Err(Error::NotAllBytesWritten(n))
+            return Err(WriteError::NotAllBytesWritten(n).into())
         }
         Ok(n)
     }
@@ -30,7 +30,7 @@ impl<T> RakNetWrite for T where T: Write {
     fn write_bytes(&mut self, b: &[u8]) -> Result<usize> {
         let n = self.write(b)?;
         if n != b.len() {
-            return Err(Error::NotAllBytesWritten(n))
+            return Err(WriteError::NotAllBytesWritten(n).into())
         }
         Ok(n)
     }
@@ -38,7 +38,7 @@ impl<T> RakNetWrite for T where T: Write {
     fn write_u16(&mut self, us: u16) -> Result<usize> {
         let n = self.write(&us.to_le_bytes())?;
         if n != 2 {
-            return Err(Error::NotAllBytesWritten(n))
+            return Err(WriteError::NotAllBytesWritten(n).into())
         }
         Ok(n)
     }
@@ -46,7 +46,7 @@ impl<T> RakNetWrite for T where T: Write {
     fn write_u16_be(&mut self, us: u16) -> Result<usize> {
         let n = self.write(&us.to_be_bytes())?;
         if n != 2 {
-            return Err(Error::NotAllBytesWritten(n))
+            return Err(WriteError::NotAllBytesWritten(n).into())
         }
         Ok(n)
     }
@@ -54,7 +54,7 @@ impl<T> RakNetWrite for T where T: Write {
     fn write_u32(&mut self, u: u32) -> Result<usize> {
         let n = self.write(&u.to_le_bytes())?;
         if n != 4 {
-            return Err(Error::NotAllBytesWritten(n))
+            return Err(WriteError::NotAllBytesWritten(n).into())
         }
         Ok(n)
     }    
@@ -62,7 +62,7 @@ impl<T> RakNetWrite for T where T: Write {
     fn write_u32_be(&mut self, u: u32) -> Result<usize> {
         let n = self.write(&u.to_be_bytes())?;
         if n != 4 {
-            return Err(Error::NotAllBytesWritten(n))
+            return Err(WriteError::NotAllBytesWritten(n).into())
         }
         Ok(n)
     }    
@@ -70,7 +70,7 @@ impl<T> RakNetWrite for T where T: Write {
     fn write_u64_be(&mut self, ul: u64) -> Result<usize> {
         let n = self.write(&ul.to_be_bytes())?;
         if n != 8 {
-            return Err(Error::NotAllBytesWritten(n))
+            return Err(WriteError::NotAllBytesWritten(n).into())
         }
         Ok(n)
     }
@@ -79,7 +79,7 @@ impl<T> RakNetWrite for T where T: Write {
         let mut n = self.write_u16_be(s.len() as u16)?;
         n += self.write(s.as_ref())?;
         if n != 2 + s.len() {
-            return Err(Error::NotAllBytesWritten(n))
+            return Err(WriteError::NotAllBytesWritten(n).into())
         }
         Ok(n)
     }
@@ -88,7 +88,7 @@ impl<T> RakNetWrite for T where T: Write {
         for i in 0..mtu {
             let n = self.write(&[0x00])?;
             if n != 1 {
-                return Err(Error::NotAllBytesWritten(i as usize + n))
+                return Err(WriteError::NotAllBytesWritten(i as usize + n).into())
             }    
         }
         Ok(mtu as usize)

@@ -2,7 +2,7 @@ pub use crossbeam_channel as channel;
 
 pub use self::{
     config::Config,
-    error::{Error, Result},
+    error::{Error, Result, ReadError, WriteError},
     peer::{RakNetPeer, Command},
     reader::RakNetRead,
     writer::RakNetWrite,
