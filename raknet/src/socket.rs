@@ -60,7 +60,7 @@ impl DatagramSocket for FakeDatagramSocket {
                 buf_payload.copy_from_slice(&payload);
                 Ok((buf_payload, addr))
             },
-            Err(TryRecvError::Empty) => Err(io::Error::new(io::ErrorKind::WouldBlock, "")),
+            Err(TryRecvError::Empty) => Err(io::ErrorKind::WouldBlock.into()),
             _ => panic!("Received unexpected error in FakeDatagramSocket"),
         }
     }
@@ -71,6 +71,6 @@ impl DatagramSocket for FakeDatagramSocket {
         let buf_len = buf.len();
         self.send_datagram_sender.try_send((buf, addr))
             .map(move |_| buf_len)
-            .map_err(|_| io::Error::new(io::ErrorKind::WouldBlock, ""))
+            .map_err(|_| io::ErrorKind::WouldBlock.into())
     }
 }

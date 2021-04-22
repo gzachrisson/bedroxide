@@ -1,9 +1,13 @@
 use std::{io, fs::File, net::SocketAddr, thread};
 use simplelog::{SimpleLogger, WriteLogger, LevelFilter, Config, CombinedLogger};
 use log::{info, error};
-use raknet::{RakNetError, RakNetPeer, Command, RakNetWrite};
+use raknet::{RakNetPeer, Command, RakNetWrite};
 
-fn main() -> Result<(), RakNetError> {
+use crate::error::Result;
+
+mod error;
+
+fn main() -> Result<()> {
     CombinedLogger::init(
         vec![
             SimpleLogger::new(LevelFilter::Debug, Config::default()),
@@ -14,7 +18,7 @@ fn main() -> Result<(), RakNetError> {
     run_server()
 }
 
-fn run_server() -> Result<(), RakNetError> {
+fn run_server() -> Result<()> {
     let addr = SocketAddr::from(([0, 0, 0, 0], 19132));
     let mut peer = RakNetPeer::bind(addr)?;
     let mut ping_response = Vec::new();

@@ -4,93 +4,93 @@ use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV6},
 };
 
-use super::RakNetError;
+use crate::error::{Error, Result};
 
 pub trait RakNetRead {
-    fn read_u8(&mut self) -> Result<u8, RakNetError>;
-    fn read_u8_and_compare(&mut self, data: u8) -> Result<(), RakNetError>;
-    fn read_bytes(&mut self, buf: &mut [u8]) -> Result<(), RakNetError>;
-    fn read_bytes_to_end(&mut self, buf: &mut Vec<u8>) -> Result<(), RakNetError>;
-    fn read_bytes_and_compare(&mut self, data: &[u8]) -> Result<(), RakNetError>;
-    fn read_u16(&mut self) -> Result<u16, RakNetError>;
-    fn read_u16_be(&mut self) -> Result<u16, RakNetError>;
-    fn read_u32(&mut self) -> Result<u32, RakNetError>;
-    fn read_u32_be(&mut self) -> Result<u32, RakNetError>;
-    fn read_u64_be(&mut self) -> Result<u64, RakNetError>;
-    fn read_fixed_string(&mut self) -> Result<String, RakNetError>;
-    fn read_zero_padding(&mut self) -> Result<u16, RakNetError>;
-    fn read_socket_addr(&mut self) -> Result<SocketAddr, RakNetError>;
+    fn read_u8(&mut self) -> Result<u8>;
+    fn read_u8_and_compare(&mut self, data: u8) -> Result<()>;
+    fn read_bytes(&mut self, buf: &mut [u8]) -> Result<()>;
+    fn read_bytes_to_end(&mut self, buf: &mut Vec<u8>) -> Result<()>;
+    fn read_bytes_and_compare(&mut self, data: &[u8]) -> Result<()>;
+    fn read_u16(&mut self) -> Result<u16>;
+    fn read_u16_be(&mut self) -> Result<u16>;
+    fn read_u32(&mut self) -> Result<u32>;
+    fn read_u32_be(&mut self) -> Result<u32>;
+    fn read_u64_be(&mut self) -> Result<u64>;
+    fn read_fixed_string(&mut self) -> Result<String>;
+    fn read_zero_padding(&mut self) -> Result<u16>;
+    fn read_socket_addr(&mut self) -> Result<SocketAddr>;
 }
 
 impl<T> RakNetRead for T where T: Read {
-    fn read_u8(&mut self) -> Result<u8, RakNetError> {
+    fn read_u8(&mut self) -> Result<u8> {
         let mut buf = [0u8; 1];
         self.read_exact(&mut buf)?;
         Ok(u8::from_le_bytes(buf[0..1].try_into().unwrap()))
     }
 
-    fn read_u8_and_compare(&mut self, data: u8) -> Result<(), RakNetError> {
+    fn read_u8_and_compare(&mut self, data: u8) -> Result<()> {
         let mut buf = [0u8; 1];
         self.read_exact(&mut buf)?;
         if buf[0] == data {
             Ok(())
         } else {
-            Err(RakNetError::InvalidData)
+            Err(Error::InvalidData)
         }
     }
 
-    fn read_bytes(&mut self, buf: &mut [u8]) -> Result<(), RakNetError> {
+    fn read_bytes(&mut self, buf: &mut [u8]) -> Result<()> {
         self.read_exact(buf)?;
         Ok(())
     }
 
-    fn read_bytes_to_end(&mut self, buf: &mut Vec<u8>) -> Result<(), RakNetError> {        
+    fn read_bytes_to_end(&mut self, buf: &mut Vec<u8>) -> Result<()> {        
         buf.clear();
         self.read_to_end(buf)?;
         Ok(())
     }
 
-    fn read_bytes_and_compare(&mut self, data: &[u8]) -> Result<(), RakNetError> {
+    fn read_bytes_and_compare(&mut self, data: &[u8]) -> Result<()> {
         let mut buf = vec![0u8; data.len()];
         self.read_exact(&mut buf)?;
         if buf == data {
             Ok(())
         } else {
-            Err(RakNetError::InvalidData)
+            Err(Error::InvalidData)
         }
     }
 
-    fn read_u16(&mut self) -> Result<u16, RakNetError> {
+    fn read_u16(&mut self) -> Result<u16> {
         let mut buf = [0u8; 2];
         self.read_exact(&mut buf)?;
         Ok(u16::from_le_bytes(buf[0..2].try_into().unwrap()))
     }
 
-    fn read_u16_be(&mut self) -> Result<u16, RakNetError> {
+    fn read_u16_be(&mut self) -> Result<u16> {
         let mut buf = [0u8; 2];
         self.read_exact(&mut buf)?;
         Ok(u16::from_be_bytes(buf[0..2].try_into().unwrap()))
     }
 
-    fn read_u32(&mut self) -> Result<u32, RakNetError> {
+    fn read_u32(&mut self) -> Result<u32> {
         let mut buf = [0u8; 4];
         self.read_exact(&mut buf)?;
         Ok(u32::from_le_bytes(buf[0..4].try_into().unwrap()))
     }
 
-    fn read_u32_be(&mut self) -> Result<u32, RakNetError> {
+    fn read_u32_be(&mut self) -> Result<u32> {
         let mut buf = [0u8; 4];
         self.read_exact(&mut buf)?;
         Ok(u32::from_be_bytes(buf[0..4].try_into().unwrap()))
     }
 
-    fn read_u64_be(&mut self) -> Result<u64, RakNetError> {
+    fn read_u64_be(&mut self) -> Result<u64> {
         let mut buf = [0u8; 8];
         self.read_exact(&mut buf)?;
         Ok(u64::from_be_bytes(buf[0..8].try_into().unwrap()))
     }
 
-    fn read_fixed_string(&mut self) -> Result<String, RakNetError> {
+    fn read_fixed_string(&mut self) -> Result<String> {
         let length: usize = self.read_u16_be()?.into();
         let mut buf = vec![0u8; length];
         self.read_exact(&mut buf)?;
@@ -98,7 +98,7 @@ impl<T> RakNetRead for T where T: Read {
         Ok(s)
     }
 
-    fn read_zero_padding(&mut self) -> Result<u16, RakNetError> {
+    fn read_zero_padding(&mut self) -> Result<u16> {
         let mut padding_length = 0u16;
         let mut buf = [0u8; 1];
         loop {
@@ -111,7 +111,7 @@ impl<T> RakNetRead for T where T: Read {
         Ok(padding_length)
     }
 
-    fn read_socket_addr(&mut self) -> Result<SocketAddr, RakNetError> {
+    fn read_socket_addr(&mut self) -> Result<SocketAddr> {
         let mut ip_version = [0u8; 1];
         self.read_exact(&mut ip_version)?;
         match ip_version[0] {
@@ -130,7 +130,7 @@ impl<T> RakNetRead for T where T: Read {
                 let scope_id = self.read_u32()?;
                 Ok(SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::from(ip), port, flowinfo, scope_id)))
             },
-            _ => Err(RakNetError::InvalidData),
+            _ => Err(Error::InvalidData),
         }
     }
 }
@@ -140,12 +140,12 @@ pub trait RakNetMessageRead: Sized {
     /// 
     /// This function assumes security is disabled on our peer, or
     /// that the security state can be determined from the message content.
-    fn read_message(reader: &mut dyn RakNetRead) -> Result<Self, RakNetError>;
+    fn read_message(reader: &mut dyn RakNetRead) -> Result<Self>;
 
     /// Reads a message including the message identifier assuming
     /// security is enabled on our peer.
     /// The default implementation if not overridden just calls `read_message()`.
-    fn read_message_with_security(reader: &mut dyn RakNetRead) -> Result<Self, RakNetError> {
+    fn read_message_with_security(reader: &mut dyn RakNetRead) -> Result<Self> {
         Self::read_message(reader)
     }
 }

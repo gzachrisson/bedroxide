@@ -2,13 +2,13 @@ use std::{
     net::{UdpSocket, ToSocketAddrs},
     time::Duration,
 };
-use log::{info};
+use log::info;
 use crossbeam_channel::{unbounded, Sender, Receiver, Select};
 
 use crate::{
     config::Config,
     connection_manager::ConnectionManager,
-    RakNetError,
+    error::Result,
 };
 
 pub struct RakNetPeer
@@ -43,13 +43,13 @@ pub enum Command
 impl RakNetPeer {
     /// Creates a RakNetPeer with a default `Config` and binds it to
     /// a UDP socket on the specified address.
-    pub fn bind<A: ToSocketAddrs>(addr: A) -> Result<Self, RakNetError> {
+    pub fn bind<A: ToSocketAddrs>(addr: A) -> Result<Self> {
         Self::bind_with_config(addr, Config::default())
     }
 
     /// Creates a RakNetPeer with the specified `Config` and binds it to
     /// a UDP socket on the specified address.
-    pub fn bind_with_config<A: ToSocketAddrs>(addr: A, config: Config) -> Result<Self, RakNetError> {
+    pub fn bind_with_config<A: ToSocketAddrs>(addr: A, config: Config) -> Result<Self> {
         info!("Binding socket");
         let socket = UdpSocket::bind(addr)?;
         socket.set_broadcast(true)?;

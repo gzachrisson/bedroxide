@@ -1,6 +1,8 @@
-pub use crate::{
+pub use crossbeam_channel as channel;
+
+pub use self::{
     config::Config,
-    error::RakNetError,    
+    error::{Error, Result},
     peer::{RakNetPeer, Command},
     reader::RakNetRead,
     writer::RakNetWrite,

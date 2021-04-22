@@ -1,6 +1,6 @@
 use core::convert::TryFrom;
 
-use super::RakNetError;
+use crate::{Error, Result};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum MessageId {
@@ -27,9 +27,9 @@ impl From<MessageId> for u8 {
 }
 
 impl TryFrom<u8> for MessageId {
-    type Error = RakNetError;
+    type Error = Error;
 
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
+    fn try_from(value: u8) -> Result<Self> {
         match value {
             0x01 => Ok(Self::UnconnectedPing),
             0x02 => Ok(Self::UnconnectedPingOpenConnections),
@@ -45,7 +45,7 @@ impl TryFrom<u8> for MessageId {
             0x19 => Ok(Self::IncompatibleProtocolVersion),
             0x1a => Ok(Self::IpRecentlyConnected),
             0x1c => Ok(Self::UnconnectedPong),
-            _ => Err(RakNetError::UnknownMessageId(value)),
+            _ => Err(Error::UnknownMessageId(value)),
         }
     }
 }

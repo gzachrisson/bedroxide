@@ -12,6 +12,7 @@ use crate::{
     config::Config,
     connection::{Connection, ConnectionState},
     constants::{RAKNET_PROTOCOL_VERSION, UDP_HEADER_SIZE, MAXIMUM_MTU_SIZE},
+    error::Result,
     message_ids::MessageId,
     messages::{
         ConnectErrorMessage,
@@ -23,7 +24,6 @@ use crate::{
         UnconnectedPingMessage,
         UnconnectedPongMessage,
     },
-    RakNetError,
     reader::RakNetMessageRead,
     socket::DatagramSocket,
     utils,
@@ -52,7 +52,7 @@ impl OfflinePacketHandler {
 
     /// Process a possible offline packet.
     /// Returns true if the packet was handled.
-    pub fn process_offline_packet(&self, addr: SocketAddr, payload: &[u8], communicator: &mut Communicator<impl DatagramSocket>, connections: &mut HashMap<SocketAddr, Connection>) -> Result<bool, RakNetError>
+    pub fn process_offline_packet(&self, addr: SocketAddr, payload: &[u8], communicator: &mut Communicator<impl DatagramSocket>, connections: &mut HashMap<SocketAddr, Connection>) -> Result<bool>
     {
         // TODO: Check if remote peer is banned. If so, send MessageId::ConnectionBanned.
 
@@ -132,7 +132,7 @@ impl OfflinePacketHandler {
         return Ok(false);
     }
 
-    fn handle_unconnected_ping_message(&self, ping: UnconnectedPingMessage, addr: SocketAddr, communicator: &mut Communicator<impl DatagramSocket>) -> Result<(), RakNetError> {
+    fn handle_unconnected_ping_message(&self, ping: UnconnectedPingMessage, addr: SocketAddr, communicator: &mut Communicator<impl DatagramSocket>) -> Result<()> {
         debug!("Received Unconnected Ping: time={}, client_guid={}", ping.time, ping.client_guid);
         debug!("Sending Unconnected Pong");
         let pong = UnconnectedPongMessage::new(communicator.config().guid, ping.time, self.ping_response.clone());
@@ -140,13 +140,13 @@ impl OfflinePacketHandler {
         Ok(())
     }
 
-    fn handle_unconnected_pong_message(&self, pong: UnconnectedPongMessage) -> Result<(), RakNetError> {
+    fn handle_unconnected_pong_message(&self, pong: UnconnectedPongMessage) -> Result<()> {
         debug!("Received Unconnected Pong: time={}, guid={}, data={:?}", pong.time, pong.guid, utils::to_hex(&pong.data, 40));
         // TODO: Forward event to user
         Ok(())
     }
 
-    fn handle_open_connection_request1_message(&self, request1: OpenConnectionRequest1Message, addr: SocketAddr, communicator: &mut Communicator<impl DatagramSocket>) -> Result<(), RakNetError> {
+    fn handle_open_connection_request1_message(&self, request1: OpenConnectionRequest1Message, addr: SocketAddr, communicator: &mut Communicator<impl DatagramSocket>) -> Result<()> {
         debug!("Received Open Connection Request 1: protocol_version={}, padding_length={}", request1.protocol_version, request1.padding_length);
         if request1.protocol_version != RAKNET_PROTOCOL_VERSION {
             debug!("Sending Incompatible Protocol Version");
@@ -163,7 +163,7 @@ impl OfflinePacketHandler {
         Ok(())
     }
 
-    fn handle_open_connection_request2_message(&self, request2: OpenConnectionRequest2Message, addr: SocketAddr, communicator: &mut Communicator<impl DatagramSocket>, connections: &mut HashMap<SocketAddr, Connection>) -> Result<(), RakNetError> {
+    fn handle_open_connection_request2_message(&self, request2: OpenConnectionRequest2Message, addr: SocketAddr, communicator: &mut Communicator<impl DatagramSocket>, connections: &mut HashMap<SocketAddr, Connection>) -> Result<()> {
         debug!("Received Open Connection Request 2: mtu={} guid={} binding_address={:?}", request2.mtu, request2.guid, request2.binding_address);        
         
         // TODO: Check security if enabled
@@ -235,7 +235,7 @@ impl OfflinePacketHandler {
         number_of_incoming_connections < config.max_incoming_connections
     }
 
-    fn send_message(message: &dyn RakNetMessageWrite, dest: SocketAddr, communicator: &mut Communicator<impl DatagramSocket>) -> Result<(), RakNetError> {
+    fn send_message(message: &dyn RakNetMessageWrite, dest: SocketAddr, communicator: &mut Communicator<impl DatagramSocket>) -> Result<()> {
         let mut payload = Vec::new();
         message.write_message(&mut payload)?;
         communicator.socket().send_datagram(&payload, dest)?;

@@ -3,98 +3,98 @@ use std::{
     net::SocketAddr,
 };
 
-use super::RakNetError;
+use crate::error::{Error, Result};
 
 pub trait RakNetWrite {
-    fn write_u8(&mut self, b: u8) -> Result<usize, RakNetError>;
-    fn write_bytes(&mut self, b: &[u8]) -> Result<usize, RakNetError>;
-    fn write_u16(&mut self, us: u16) -> Result<usize, RakNetError>;
-    fn write_u16_be(&mut self, us: u16) -> Result<usize, RakNetError>;
-    fn write_u32(&mut self, u: u32) -> Result<usize, RakNetError>;
-    fn write_u32_be(&mut self, u: u32) -> Result<usize, RakNetError>;
-    fn write_u64_be(&mut self, ul: u64) -> Result<usize, RakNetError>;
-    fn write_fixed_string(&mut self, s: &str) -> Result<usize, RakNetError>;
-    fn write_zero_padding(&mut self, mtu: u16) -> Result<usize, RakNetError>;
-    fn write_socket_addr(&mut self, addr: &SocketAddr) -> Result<usize, RakNetError>;
+    fn write_u8(&mut self, b: u8) -> Result<usize>;
+    fn write_bytes(&mut self, b: &[u8]) -> Result<usize>;
+    fn write_u16(&mut self, us: u16) -> Result<usize>;
+    fn write_u16_be(&mut self, us: u16) -> Result<usize>;
+    fn write_u32(&mut self, u: u32) -> Result<usize>;
+    fn write_u32_be(&mut self, u: u32) -> Result<usize>;
+    fn write_u64_be(&mut self, ul: u64) -> Result<usize>;
+    fn write_fixed_string(&mut self, s: &str) -> Result<usize>;
+    fn write_zero_padding(&mut self, mtu: u16) -> Result<usize>;
+    fn write_socket_addr(&mut self, addr: &SocketAddr) -> Result<usize>;
 }
 
 impl<T> RakNetWrite for T where T: Write {
-    fn write_u8(&mut self, b: u8) -> Result<usize, RakNetError> {
+    fn write_u8(&mut self, b: u8) -> Result<usize> {
         let n = self.write(&[b])?;
         if n != 1 {
-            return Err(RakNetError::TooFewBytesWritten(n))
+            return Err(Error::NotAllBytesWritten(n))
         }
         Ok(n)
     }
 
-    fn write_bytes(&mut self, b: &[u8]) -> Result<usize, RakNetError> {
+    fn write_bytes(&mut self, b: &[u8]) -> Result<usize> {
         let n = self.write(b)?;
         if n != b.len() {
-            return Err(RakNetError::TooFewBytesWritten(n))
+            return Err(Error::NotAllBytesWritten(n))
         }
         Ok(n)
     }
 
-    fn write_u16(&mut self, us: u16) -> Result<usize, RakNetError> {
+    fn write_u16(&mut self, us: u16) -> Result<usize> {
         let n = self.write(&us.to_le_bytes())?;
         if n != 2 {
-            return Err(RakNetError::TooFewBytesWritten(n))
+            return Err(Error::NotAllBytesWritten(n))
         }
         Ok(n)
     }
 
-    fn write_u16_be(&mut self, us: u16) -> Result<usize, RakNetError> {
+    fn write_u16_be(&mut self, us: u16) -> Result<usize> {
         let n = self.write(&us.to_be_bytes())?;
         if n != 2 {
-            return Err(RakNetError::TooFewBytesWritten(n))
+            return Err(Error::NotAllBytesWritten(n))
         }
         Ok(n)
     }
 
-    fn write_u32(&mut self, u: u32) -> Result<usize, RakNetError> {
+    fn write_u32(&mut self, u: u32) -> Result<usize> {
         let n = self.write(&u.to_le_bytes())?;
         if n != 4 {
-            return Err(RakNetError::TooFewBytesWritten(n))
+            return Err(Error::NotAllBytesWritten(n))
         }
         Ok(n)
     }    
 
-    fn write_u32_be(&mut self, u: u32) -> Result<usize, RakNetError> {
+    fn write_u32_be(&mut self, u: u32) -> Result<usize> {
         let n = self.write(&u.to_be_bytes())?;
         if n != 4 {
-            return Err(RakNetError::TooFewBytesWritten(n))
+            return Err(Error::NotAllBytesWritten(n))
         }
         Ok(n)
     }    
 
-    fn write_u64_be(&mut self, ul: u64) -> Result<usize, RakNetError> {
+    fn write_u64_be(&mut self, ul: u64) -> Result<usize> {
         let n = self.write(&ul.to_be_bytes())?;
         if n != 8 {
-            return Err(RakNetError::TooFewBytesWritten(n))
+            return Err(Error::NotAllBytesWritten(n))
         }
         Ok(n)
     }
 
-    fn write_fixed_string(&mut self, s: &str) -> std::result::Result<usize, RakNetError> {
+    fn write_fixed_string(&mut self, s: &str) -> Result<usize> {
         let mut n = self.write_u16_be(s.len() as u16)?;
         n += self.write(s.as_ref())?;
         if n != 2 + s.len() {
-            return Err(RakNetError::TooFewBytesWritten(n))
+            return Err(Error::NotAllBytesWritten(n))
         }
         Ok(n)
     }
 
-    fn write_zero_padding(&mut self, mtu: u16) -> Result<usize, RakNetError> {
+    fn write_zero_padding(&mut self, mtu: u16) -> Result<usize> {
         for i in 0..mtu {
             let n = self.write(&[0x00])?;
             if n != 1 {
-                return Err(RakNetError::TooFewBytesWritten(i as usize + n))
+                return Err(Error::NotAllBytesWritten(i as usize + n))
             }    
         }
         Ok(mtu as usize)
     }
 
-    fn write_socket_addr(&mut self, addr: &SocketAddr) -> std::result::Result<usize, RakNetError> {
+    fn write_socket_addr(&mut self, addr: &SocketAddr) -> Result<usize> {
         match addr {
             SocketAddr::V4(addr_v4) => {
                 let mut n = self.write_u8(4)?;
@@ -122,14 +122,14 @@ impl<T> RakNetWrite for T where T: Write {
 
 pub trait RakNetMessageWrite {
     /// Writes a message including the message identifier.
-    fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<(), RakNetError>;
+    fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<()>;
 }
 
 #[cfg(test)]
 mod tests {
     use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
 
-    use super::RakNetWrite;
+    use crate::writer::RakNetWrite;
 
     #[test]
     fn write_socket_addr_ipv4() {

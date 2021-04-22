@@ -2,7 +2,7 @@ use std::{convert::TryFrom, net::SocketAddr};
 
 use crate::{
     constants::OFFLINE_MESSAGE_ID,
-    error::RakNetError,
+    error::{Error, Result},
     message_ids::MessageId,
     reader::{RakNetRead, RakNetMessageRead},
     writer::{RakNetWrite, RakNetMessageWrite},
@@ -15,11 +15,12 @@ pub struct UnconnectedPingMessage {
 }
 
 impl RakNetMessageRead for UnconnectedPingMessage {
-    fn read_message(reader: &mut dyn RakNetRead) -> Result<Self, RakNetError> {
-        let message_id = match MessageId::try_from(reader.read_u8()?) {
+    fn read_message(reader: &mut dyn RakNetRead) -> Result<Self> {
+        let message_id_byte = reader.read_u8()?;
+        let message_id = match MessageId::try_from(message_id_byte) {
             Ok(MessageId::UnconnectedPing) => MessageId::UnconnectedPing,
             Ok(MessageId::UnconnectedPingOpenConnections) => MessageId::UnconnectedPingOpenConnections,
-            _ => return Err(RakNetError::InvalidData),
+            _ => return Err(Error::UnknownMessageId(message_id_byte)),
         };
         let time = reader.read_u64_be()?;
         reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID)?;
@@ -29,7 +30,7 @@ impl RakNetMessageRead for UnconnectedPingMessage {
 }
 
 impl RakNetMessageWrite for UnconnectedPingMessage {
-    fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<(), RakNetError> {
+    fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<()> {
         writer.write_u8(self.message_id.into())?;
         writer.write_u64_be(self.time)?;
         writer.write_bytes(&OFFLINE_MESSAGE_ID)?;
@@ -55,7 +56,7 @@ impl UnconnectedPongMessage {
 }
 
 impl RakNetMessageRead for UnconnectedPongMessage {
-    fn read_message(reader: &mut dyn RakNetRead) -> Result<Self, RakNetError> {
+    fn read_message(reader: &mut dyn RakNetRead) -> Result<Self> {
         reader.read_u8_and_compare(MessageId::UnconnectedPong.into())?;
         let time = reader.read_u64_be()?;
         let guid = reader.read_u64_be()?;
@@ -67,7 +68,7 @@ impl RakNetMessageRead for UnconnectedPongMessage {
 }
 
 impl RakNetMessageWrite for UnconnectedPongMessage {
-    fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<(), RakNetError> {
+    fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<()> {
         writer.write_u8(MessageId::UnconnectedPong.into())?;
         writer.write_u64_be(self.time)?;
         writer.write_u64_be(self.guid)?;
@@ -83,7 +84,7 @@ pub struct OpenConnectionRequest1Message {
 }
 
 impl RakNetMessageRead for OpenConnectionRequest1Message {
-    fn read_message(reader: &mut dyn RakNetRead) -> Result<Self, RakNetError> {
+    fn read_message(reader: &mut dyn RakNetRead) -> Result<Self> {
         reader.read_u8_and_compare(MessageId::OpenConnectionRequest1.into())?;
         reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID)?;
         let protocol_version = reader.read_u8()?;
@@ -93,7 +94,7 @@ impl RakNetMessageRead for OpenConnectionRequest1Message {
 }
 
 impl RakNetMessageWrite for OpenConnectionRequest1Message {
-    fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<(), RakNetError> {
+    fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<()> {
         writer.write_u8(MessageId::OpenConnectionRequest1.into())?;
         writer.write_bytes(&OFFLINE_MESSAGE_ID)?;
         writer.write_u8(self.protocol_version)?;
@@ -119,7 +120,7 @@ impl OpenConnectionReply1Message {
 }
 
 impl RakNetMessageRead for OpenConnectionReply1Message {
-    fn read_message(reader: &mut dyn RakNetRead) -> Result<Self, RakNetError> {
+    fn read_message(reader: &mut dyn RakNetRead) -> Result<Self> {
         reader.read_u8_and_compare(MessageId::OpenConnectionReply1.into())?;
         reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID)?;
         let guid = reader.read_u64_be()?;
@@ -143,7 +144,7 @@ impl RakNetMessageRead for OpenConnectionReply1Message {
 }
 
 impl RakNetMessageWrite for OpenConnectionReply1Message {
-    fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<(), RakNetError> {
+    fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<()> {
         writer.write_u8(MessageId::OpenConnectionReply1.into())?;
         writer.write_bytes(&OFFLINE_MESSAGE_ID)?;
         writer.write_u64_be(self.guid)?;
@@ -167,7 +168,7 @@ pub struct OpenConnectionRequest2Message {
 }
 
 impl RakNetMessageRead for OpenConnectionRequest2Message {
-    fn read_message(reader: &mut dyn RakNetRead) -> Result<Self, RakNetError> {
+    fn read_message(reader: &mut dyn RakNetRead) -> Result<Self> {
         reader.read_u8_and_compare(MessageId::OpenConnectionRequest2.into())?;
         reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID)?;
         let binding_address = reader.read_socket_addr()?;
@@ -181,7 +182,7 @@ impl RakNetMessageRead for OpenConnectionRequest2Message {
         })
     }
 
-    fn read_message_with_security(reader: &mut dyn RakNetRead) -> Result<Self, RakNetError> {
+    fn read_message_with_security(reader: &mut dyn RakNetRead) -> Result<Self> {
         reader.read_u8_and_compare(MessageId::OpenConnectionRequest2.into())?;
         reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID)?;
         let cookie = reader.read_u32_be()?;
@@ -206,7 +207,7 @@ impl RakNetMessageRead for OpenConnectionRequest2Message {
 }
 
 impl RakNetMessageWrite for OpenConnectionRequest2Message {
-    fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<(), RakNetError> {
+    fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<()> {
         writer.write_u8(MessageId::OpenConnectionRequest2.into())?;
         writer.write_bytes(&OFFLINE_MESSAGE_ID)?;
         if let Some((cookie, challenge)) = &self.cookie_and_challenge {
@@ -244,7 +245,7 @@ impl OpenConnectionReply2Message {
 }
 
 impl RakNetMessageRead for OpenConnectionReply2Message {
-    fn read_message(reader: &mut dyn RakNetRead) -> Result<Self, RakNetError> {
+    fn read_message(reader: &mut dyn RakNetRead) -> Result<Self> {
         reader.read_u8_and_compare(MessageId::OpenConnectionReply2.into())?;
         reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID)?;
         let guid = reader.read_u64_be()?;
@@ -269,7 +270,7 @@ impl RakNetMessageRead for OpenConnectionReply2Message {
 }
 
 impl RakNetMessageWrite for OpenConnectionReply2Message {
-    fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<(), RakNetError> {
+    fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<()> {
         writer.write_u8(MessageId::OpenConnectionReply2.into())?;
         writer.write_bytes(&OFFLINE_MESSAGE_ID)?;
         writer.write_u64_be(self.guid)?;
@@ -300,7 +301,7 @@ impl IncompatibleProtocolVersionMessage {
 }
 
 impl RakNetMessageRead for IncompatibleProtocolVersionMessage {
-    fn read_message(reader: &mut dyn RakNetRead) -> Result<Self, RakNetError> {
+    fn read_message(reader: &mut dyn RakNetRead) -> Result<Self> {
         reader.read_u8_and_compare(MessageId::IncompatibleProtocolVersion.into())?;
         let protocol_version = reader.read_u8()?;
         reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID)?;
@@ -310,7 +311,7 @@ impl RakNetMessageRead for IncompatibleProtocolVersionMessage {
 }
 
 impl RakNetMessageWrite for IncompatibleProtocolVersionMessage {
-    fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<(), RakNetError> {
+    fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<()> {
         writer.write_u8(MessageId::IncompatibleProtocolVersion.into())?;
         writer.write_u8(self.protocol_version)?;
         writer.write_bytes(&OFFLINE_MESSAGE_ID)?;
@@ -337,13 +338,14 @@ impl ConnectErrorMessage {
 }
 
 impl RakNetMessageRead for ConnectErrorMessage {
-    fn read_message(reader: &mut dyn RakNetRead) -> Result<Self, RakNetError> {
-        let message_id = match MessageId::try_from(reader.read_u8()?) {
+    fn read_message(reader: &mut dyn RakNetRead) -> Result<Self> {
+        let message_id_byte = reader.read_u8()?;
+        let message_id = match MessageId::try_from(message_id_byte) {
             Ok(MessageId::NoFreeIncomingConnections) => MessageId::NoFreeIncomingConnections,
             Ok(MessageId::ConnectionBanned) => MessageId::ConnectionBanned,
             Ok(MessageId::AlreadyConnected) => MessageId::AlreadyConnected,
             Ok(MessageId::IpRecentlyConnected) => MessageId::IpRecentlyConnected,
-            _ => return Err(RakNetError::InvalidData),
+            _ => return Err(Error::UnknownMessageId(message_id_byte)),
         };
         reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID)?;
         let guid = reader.read_u64_be()?;
@@ -352,7 +354,7 @@ impl RakNetMessageRead for ConnectErrorMessage {
 }
 
 impl RakNetMessageWrite for ConnectErrorMessage {
-    fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<(), RakNetError> {
+    fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<()> {
         writer.write_u8(self.message_id.into())?;
         writer.write_bytes(&OFFLINE_MESSAGE_ID)?;
         writer.write_u64_be(self.guid)?;
@@ -368,7 +370,7 @@ mod tests {
     };
 
     use crate::{
-        error::RakNetError,
+        error::Error,
         message_ids::MessageId,
         messages::{
             ConnectErrorMessage,
@@ -421,7 +423,7 @@ mod tests {
         // Assert
         match result {
             Ok(_) => panic!("Message read even though offline message ID was incorrect"),
-            Err(RakNetError::InvalidData) => {},
+            Err(Error::InvalidData) => {},
             _ => panic!("Invalid error reading message with invalid message ID"),
         }
     }    
@@ -552,7 +554,7 @@ mod tests {
         // Assert
         match result {
             Ok(_) => panic!("Message read even though offline message ID was incorrect"),
-            Err(RakNetError::InvalidData) => {},
+            Err(Error::InvalidData) => {},
             _ => panic!("Invalid error reading message with invalid offline message ID"),
         }
     }    
@@ -641,7 +643,7 @@ mod tests {
         // Assert
         match result {
             Ok(_) => panic!("Message read even though offline message ID was incorrect"),
-            Err(RakNetError::InvalidData) => {},
+            Err(Error::InvalidData) => {},
             _ => panic!("Invalid error reading message with invalid offline message ID"),
         }
     }    
@@ -1018,7 +1020,7 @@ mod tests {
         // Assert
         match result {
             Ok(_) => panic!("Message read even though offline message ID was incorrect"),
-            Err(RakNetError::InvalidData) => {},
+            Err(Error::InvalidData) => {},
             _ => panic!("Invalid error reading message with invalid offline message ID"),
         }
     }    
