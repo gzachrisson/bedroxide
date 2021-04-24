@@ -61,78 +61,28 @@ impl OfflinePacketHandler {
             return Ok(true);
         }
 
-        let mut reader = Cursor::new(payload);
         match MessageId::try_from(payload[0]) {
-            Ok(MessageId::UnconnectedPing) => {
-                if let Ok(ping) = UnconnectedPingMessage::read_message(&mut reader) {
-                    self.handle_unconnected_ping_message(ping, addr, communicator)?;
-                    return Ok(true);
-                }
-            },
-            Ok(MessageId::UnconnectedPingOpenConnections) => {
-                if let Ok(ping) = UnconnectedPingMessage::read_message(&mut reader) {
-                    if Self::allow_incoming_connections(communicator.config(), connections) {
-                        self.handle_unconnected_ping_message(ping, addr, communicator)?;
-                    }
-                    return Ok(true);
-                }
-            },
-            Ok(MessageId::UnconnectedPong) => {
-                if let Ok(pong) = UnconnectedPongMessage::read_message(&mut reader) {
-                    self.handle_unconnected_pong_message(pong)?;
-                    return Ok(true);
-                }
-            },
-            Ok(MessageId::OpenConnectionRequest1) => {
-                if let Ok(request1) = OpenConnectionRequest1Message::read_message(&mut reader) {
-                    self.handle_open_connection_request1_message(request1, addr, communicator)?;
-                    return Ok(true);
-                }
-            },
-            Ok(MessageId::OpenConnectionRequest2) => {
-                if let Ok(request2) = OpenConnectionRequest2Message::read_message(&mut reader) {
-                    self.handle_open_connection_request2_message(request2, addr, communicator, connections)?;
-                    return Ok(true);
-                }
-            },
-            Ok(MessageId::OpenConnectionReply1) => {
-                // TODO: Implement
-                return Ok(true);
-            },
-            Ok(MessageId::OpenConnectionReply2) => {
-                // TODO: Implement
-                return Ok(true);
-            },
-            Ok(MessageId::OutOfBandInternal) => {
-                // TODO: Implement
-                return Ok(true);
-            },
-            Ok(MessageId::ConnectionAttemptFailed) => {
-                // TODO: Implement
-                return Ok(true);
-            },
-            Ok(MessageId::NoFreeIncomingConnections) => {
-                // TODO: Implement
-                return Ok(true);
-            },
-            Ok(MessageId::ConnectionBanned) => {
-                // TODO: Implement
-                return Ok(true);
-            },
-            Ok(MessageId::AlreadyConnected) => {
-                // TODO: Implement
-                return Ok(true);
-            },
-            Ok(MessageId::IpRecentlyConnected) => {
-                // TODO: Implement
-                return Ok(true);
-            },
+            Ok(MessageId::UnconnectedPing) => self.handle_unconnected_ping(addr, payload, communicator)?,
+            Ok(MessageId::UnconnectedPingOpenConnections) => self.handle_unconnected_ping_open_connections(addr, payload, communicator, connections)?,
+            Ok(MessageId::UnconnectedPong) => self.handle_unconnected_pong(addr, payload, communicator)?,
+            Ok(MessageId::OpenConnectionRequest1) => self.handle_open_connection_request1(addr, payload, communicator)?,
+            Ok(MessageId::OpenConnectionRequest2) => self.handle_open_connection_request2(addr, payload, communicator, connections)?,
+            Ok(MessageId::OpenConnectionReply1) => {}, // TODO: Implement
+            Ok(MessageId::OpenConnectionReply2) => {}, // TODO: Implement
+            Ok(MessageId::OutOfBandInternal) => {}, // TODO: Implement
+            Ok(MessageId::ConnectionAttemptFailed) => {}, // TODO: Implement
+            Ok(MessageId::NoFreeIncomingConnections) => {}, // TODO: Implement
+            Ok(MessageId::ConnectionBanned) => {}, // TODO: Implement
+            Ok(MessageId::AlreadyConnected) => {}, // TODO: Implement
+            Ok(MessageId::IpRecentlyConnected) => {}, // TODO: Implement
             _ => return Ok(false),
         }
-        return Ok(false);
+        Ok(true)
     }
 
-    fn handle_unconnected_ping_message(&self, ping: UnconnectedPingMessage, addr: SocketAddr, communicator: &mut Communicator<impl DatagramSocket>) -> Result<()> {
+    fn handle_unconnected_ping(&self, addr: SocketAddr, payload: &[u8], communicator: &mut Communicator<impl DatagramSocket>) -> Result<()> {
+        let mut reader = Cursor::new(payload);
+        let ping = UnconnectedPingMessage::read_message(&mut reader)?;
         debug!("Received Unconnected Ping: time={}, client_guid={}", ping.time, ping.client_guid);
         debug!("Sending Unconnected Pong");
         let pong = UnconnectedPongMessage::new(communicator.config().guid, ping.time, self.ping_response.clone());
@@ -140,13 +90,24 @@ impl OfflinePacketHandler {
         Ok(())
     }
 
-    fn handle_unconnected_pong_message(&self, pong: UnconnectedPongMessage) -> Result<()> {
+    fn handle_unconnected_ping_open_connections(&self, addr: SocketAddr, payload: &[u8], communicator: &mut Communicator<impl DatagramSocket>, connections: &mut HashMap<SocketAddr, Connection>) -> Result<()> {
+        if Self::allow_incoming_connections(communicator.config(), connections) {
+            self.handle_unconnected_ping(addr, payload, communicator)?;
+        }
+        Ok(())
+    }
+
+    fn handle_unconnected_pong(&self, _addr: SocketAddr, payload: &[u8], _communicator: &mut Communicator<impl DatagramSocket>) -> Result<()> {
+        let mut reader = Cursor::new(payload);
+        let pong = UnconnectedPongMessage::read_message(&mut reader)?;
         debug!("Received Unconnected Pong: time={}, guid={}, data={:?}", pong.time, pong.guid, utils::to_hex(&pong.data, 40));
         // TODO: Forward event to user
         Ok(())
     }
 
-    fn handle_open_connection_request1_message(&self, request1: OpenConnectionRequest1Message, addr: SocketAddr, communicator: &mut Communicator<impl DatagramSocket>) -> Result<()> {
+    fn handle_open_connection_request1(&self, addr: SocketAddr, payload: &[u8], communicator: &mut Communicator<impl DatagramSocket>) -> Result<()> {
+        let mut reader = Cursor::new(payload);
+        let request1 = OpenConnectionRequest1Message::read_message(&mut reader)?;
         debug!("Received Open Connection Request 1: protocol_version={}, padding_length={}", request1.protocol_version, request1.padding_length);
         if request1.protocol_version != RAKNET_PROTOCOL_VERSION {
             debug!("Sending Incompatible Protocol Version");
@@ -163,7 +124,9 @@ impl OfflinePacketHandler {
         Ok(())
     }
 
-    fn handle_open_connection_request2_message(&self, request2: OpenConnectionRequest2Message, addr: SocketAddr, communicator: &mut Communicator<impl DatagramSocket>, connections: &mut HashMap<SocketAddr, Connection>) -> Result<()> {
+    fn handle_open_connection_request2(&self, addr: SocketAddr, payload: &[u8], communicator: &mut Communicator<impl DatagramSocket>, connections: &mut HashMap<SocketAddr, Connection>) -> Result<()> {
+        let mut reader = Cursor::new(payload);
+        let request2 = OpenConnectionRequest2Message::read_message(&mut reader)?;
         debug!("Received Open Connection Request 2: mtu={} guid={} binding_address={:?}", request2.mtu, request2.guid, request2.binding_address);        
         
         // TODO: Check security if enabled
