@@ -39,20 +39,19 @@ impl<T: DatagramSocket> ConnectionManager<T> {
 
     /// Sends and receives packages/events and updates connections.
     pub fn process(&mut self) {
+        let communicator = &mut self.communicator;
+
         // Process all incoming packets
         loop
         {
-            match self.communicator.socket().receive_datagram(self.receive_buffer.as_mut())
+            match communicator.socket().receive_datagram(self.receive_buffer.as_mut())
             {
                 Ok((payload, addr)) => {
                     debug!("Received {} bytes from {}: {}", payload.len(), addr, utils::to_hex(&payload, 40));
-                    match self.offline_packet_handler.process_offline_packet(addr, payload, &mut self.communicator, &mut self.connections)
-                    {
-                        Ok(true) => continue,
-                        Ok(false) => { 
-                            // TODO: Process online packet
+                    if !self.offline_packet_handler.process_offline_packet(addr, payload, communicator, &mut self.connections) {
+                        if let Some(_conn) = self.connections.get_mut(&addr) {
+                            // TODO: Process packet from connected remote peer
                         }
-                        Err(err) => error!("Error when processing received packet: {:?}", err),
                     }
                 },
                 Err(err) => {

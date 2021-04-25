@@ -5,14 +5,13 @@ use std::{
     net::SocketAddr
 };
 
-use log::debug;
+use log::{debug, error};
 
 use crate::{
     communicator::Communicator,
     config::Config,
     connection::{Connection, ConnectionState},
     constants::{RAKNET_PROTOCOL_VERSION, UDP_HEADER_SIZE, MAXIMUM_MTU_SIZE},
-    error::Result,
     message_ids::MessageId,
     messages::{
         ConnectErrorMessage,
@@ -52,138 +51,148 @@ impl OfflinePacketHandler {
 
     /// Process a possible offline packet.
     /// Returns true if the packet was handled.
-    pub fn process_offline_packet(&self, addr: SocketAddr, payload: &[u8], communicator: &mut Communicator<impl DatagramSocket>, connections: &mut HashMap<SocketAddr, Connection>) -> Result<bool>
+    pub fn process_offline_packet(&self, addr: SocketAddr, payload: &[u8], communicator: &mut Communicator<impl DatagramSocket>, connections: &mut HashMap<SocketAddr, Connection>) -> bool
     {
         // TODO: Check if remote peer is banned. If so, send MessageId::ConnectionBanned.
 
-        if payload.len() <= 2 {
-            debug!("Received too short packet. Length: {} bytes", payload.len());
-            return Ok(true);
-        }
-
-        match MessageId::try_from(payload[0]) {
-            Ok(MessageId::UnconnectedPing) => self.handle_unconnected_ping(addr, payload, communicator)?,
-            Ok(MessageId::UnconnectedPingOpenConnections) => self.handle_unconnected_ping_open_connections(addr, payload, communicator, connections)?,
-            Ok(MessageId::UnconnectedPong) => self.handle_unconnected_pong(addr, payload, communicator)?,
-            Ok(MessageId::OpenConnectionRequest1) => self.handle_open_connection_request1(addr, payload, communicator)?,
-            Ok(MessageId::OpenConnectionRequest2) => self.handle_open_connection_request2(addr, payload, communicator, connections)?,
-            Ok(MessageId::OpenConnectionReply1) => {}, // TODO: Implement
-            Ok(MessageId::OpenConnectionReply2) => {}, // TODO: Implement
-            Ok(MessageId::OutOfBandInternal) => {}, // TODO: Implement
-            Ok(MessageId::ConnectionAttemptFailed) => {}, // TODO: Implement
-            Ok(MessageId::NoFreeIncomingConnections) => {}, // TODO: Implement
-            Ok(MessageId::ConnectionBanned) => {}, // TODO: Implement
-            Ok(MessageId::AlreadyConnected) => {}, // TODO: Implement
-            Ok(MessageId::IpRecentlyConnected) => {}, // TODO: Implement
-            _ => return Ok(false),
-        }
-        Ok(true)
-    }
-
-    fn handle_unconnected_ping(&self, addr: SocketAddr, payload: &[u8], communicator: &mut Communicator<impl DatagramSocket>) -> Result<()> {
-        let mut reader = Cursor::new(payload);
-        let ping = UnconnectedPingMessage::read_message(&mut reader)?;
-        debug!("Received Unconnected Ping: time={}, client_guid={}", ping.time, ping.client_guid);
-        debug!("Sending Unconnected Pong");
-        let pong = UnconnectedPongMessage::new(communicator.config().guid, ping.time, self.ping_response.clone());
-        Self::send_message(&pong, addr, communicator)?;
-        Ok(())
-    }
-
-    fn handle_unconnected_ping_open_connections(&self, addr: SocketAddr, payload: &[u8], communicator: &mut Communicator<impl DatagramSocket>, connections: &mut HashMap<SocketAddr, Connection>) -> Result<()> {
-        if Self::allow_incoming_connections(communicator.config(), connections) {
-            self.handle_unconnected_ping(addr, payload, communicator)?;
-        }
-        Ok(())
-    }
-
-    fn handle_unconnected_pong(&self, _addr: SocketAddr, payload: &[u8], _communicator: &mut Communicator<impl DatagramSocket>) -> Result<()> {
-        let mut reader = Cursor::new(payload);
-        let pong = UnconnectedPongMessage::read_message(&mut reader)?;
-        debug!("Received Unconnected Pong: time={}, guid={}, data={:?}", pong.time, pong.guid, utils::to_hex(&pong.data, 40));
-        // TODO: Forward event to user
-        Ok(())
-    }
-
-    fn handle_open_connection_request1(&self, addr: SocketAddr, payload: &[u8], communicator: &mut Communicator<impl DatagramSocket>) -> Result<()> {
-        let mut reader = Cursor::new(payload);
-        let request1 = OpenConnectionRequest1Message::read_message(&mut reader)?;
-        debug!("Received Open Connection Request 1: protocol_version={}, padding_length={}", request1.protocol_version, request1.padding_length);
-        if request1.protocol_version != RAKNET_PROTOCOL_VERSION {
-            debug!("Sending Incompatible Protocol Version");
-            let message = IncompatibleProtocolVersionMessage::new(RAKNET_PROTOCOL_VERSION, communicator.config().guid);
-            Self::send_message(&message, addr, communicator)?;
-        } else {
-            let requested_mtu = UDP_HEADER_SIZE + 1 + 16 + 1 + request1.padding_length;
-            let mtu = if requested_mtu < MAXIMUM_MTU_SIZE { requested_mtu } else { MAXIMUM_MTU_SIZE };
-            // TODO: Add support for security
-            debug!("Sending Open Connection Reply 1");
-            let response = OpenConnectionReply1Message::new(communicator.config().guid, None, mtu);
-            Self::send_message(&response, addr, communicator)?
-        }
-        Ok(())
-    }
-
-    fn handle_open_connection_request2(&self, addr: SocketAddr, payload: &[u8], communicator: &mut Communicator<impl DatagramSocket>, connections: &mut HashMap<SocketAddr, Connection>) -> Result<()> {
-        let mut reader = Cursor::new(payload);
-        let request2 = OpenConnectionRequest2Message::read_message(&mut reader)?;
-        debug!("Received Open Connection Request 2: mtu={} guid={} binding_address={:?}", request2.mtu, request2.guid, request2.binding_address);        
-        
-        // TODO: Check security if enabled
-
-        let (guid_in_use, guid_in_use_by_same_addr) = connections.iter().find_map(|(remote_addr, conn)|
-            if conn.guid() == request2.guid {
-                Some((true, *remote_addr == addr))
-            } else {
-                None
-            }).unwrap_or((false, false));
-
-        let (addr_in_use, addr_in_use_by_unverified_sender, conn) =
-            if let Some(conn) = connections.get_mut(&addr) {
-                (true, conn.state == ConnectionState::UnverifiedSender, Some(conn))
-            } else {
-                (false, false, None)
-            };
-        
-        if addr_in_use_by_unverified_sender && guid_in_use_by_same_addr {
-            if let Some(conn) = conn {
-                // Duplicate connection request due to packet loss
-                // Resend the reply
-                // TODO: Add support for security (resend challenge answer)
-                debug!("Sending Open Connection Reply2 (connection already exists)");
-                let reply2 = OpenConnectionReply2Message::new(communicator.config().guid, addr, conn.mtu(), None);
-                Self::send_message(&reply2, addr, communicator)?;
-                return Ok(());
+        if payload.len() > 2 {
+            match MessageId::try_from(payload[0]) {
+                Ok(MessageId::UnconnectedPing) => self.handle_unconnected_ping(addr, payload, communicator),
+                Ok(MessageId::UnconnectedPingOpenConnections) => self.handle_unconnected_ping_open_connections(addr, payload, communicator, connections),
+                Ok(MessageId::UnconnectedPong) => self.handle_unconnected_pong(addr, payload, communicator),
+                Ok(MessageId::OpenConnectionRequest1) => self.handle_open_connection_request1(addr, payload, communicator),
+                Ok(MessageId::OpenConnectionRequest2) => self.handle_open_connection_request2(addr, payload, communicator, connections),
+                Ok(MessageId::OpenConnectionReply1) => {}, // TODO: Implement
+                Ok(MessageId::OpenConnectionReply2) => {}, // TODO: Implement
+                Ok(MessageId::OutOfBandInternal) => {}, // TODO: Implement
+                Ok(MessageId::ConnectionAttemptFailed) => {}, // TODO: Implement
+                Ok(MessageId::NoFreeIncomingConnections) => {}, // TODO: Implement
+                Ok(MessageId::ConnectionBanned) => {}, // TODO: Implement
+                Ok(MessageId::AlreadyConnected) => {}, // TODO: Implement
+                Ok(MessageId::IpRecentlyConnected) => {}, // TODO: Implement
+                _ => return false,
             }
+        } else {
+            debug!("Received too short packet. Length: {} bytes", payload.len());
         }
 
-        if guid_in_use || addr_in_use {
-            // GUID or IP address already in use
-            debug!("Sending Already Connected");
-            let message = ConnectErrorMessage::new(MessageId::AlreadyConnected, communicator.config().guid);
-            Self::send_message(&message, addr, communicator)?;
-            return Ok(());
+        true
+    }
+
+    fn handle_unconnected_ping(&self, addr: SocketAddr, payload: &[u8], communicator: &mut Communicator<impl DatagramSocket>) {
+        let mut reader = Cursor::new(payload);
+        match UnconnectedPingMessage::read_message(&mut reader) {
+            Ok(ping) => {
+                debug!("Received Unconnected Ping: time={}, client_guid={}", ping.time, ping.client_guid);
+                debug!("Sending Unconnected Pong");
+                let pong = UnconnectedPongMessage::new(communicator.config().guid, ping.time, self.ping_response.clone());
+                Self::send_message(&pong, addr, communicator);
+            },
+            Err(err) => error!("Could not read ping: {:?}", err),
         }
+    }
 
-        if !Self::allow_incoming_connections(communicator.config(), connections) {
-            debug!("Sending No Free Incoming Connections");
-            let message = ConnectErrorMessage::new(MessageId::NoFreeIncomingConnections, communicator.config().guid);
-            Self::send_message(&message, addr, communicator)?;
-            return Ok(());
+    fn handle_unconnected_ping_open_connections(&self, addr: SocketAddr, payload: &[u8], communicator: &mut Communicator<impl DatagramSocket>, connections: &mut HashMap<SocketAddr, Connection>) {
+        if Self::allow_incoming_connections(communicator.config(), connections) {
+            self.handle_unconnected_ping(addr, payload, communicator);
         }
+    }
 
-        // TODO: Check if this IP has connected the last 100 ms. If so, send MessageId::IpRecentlyConnected.
-        // TODO: Check that the MTU is within our accepted range
+    fn handle_unconnected_pong(&self, _addr: SocketAddr, payload: &[u8], _communicator: &mut Communicator<impl DatagramSocket>) {
+        let mut reader = Cursor::new(payload);
+        match UnconnectedPongMessage::read_message(&mut reader) {
+            Ok(pong) => {
+                debug!("Received Unconnected Pong: time={}, guid={}, data={:?}", pong.time, pong.guid, utils::to_hex(&pong.data, 40));
+                // TODO: Forward event to user
+            },
+            Err(err) => error!("Could not read pong: {:?}", err),
+        }
+    }
 
-        let conn = Connection::incoming(request2.guid, request2.mtu);
-        connections.insert(addr, conn);
+    fn handle_open_connection_request1(&self, addr: SocketAddr, payload: &[u8], communicator: &mut Communicator<impl DatagramSocket>) {
+        let mut reader = Cursor::new(payload);
+        match OpenConnectionRequest1Message::read_message(&mut reader) {
+            Ok(request1) => {
+                debug!("Received Open Connection Request 1: protocol_version={}, padding_length={}", request1.protocol_version, request1.padding_length);
+                if request1.protocol_version != RAKNET_PROTOCOL_VERSION {
+                    debug!("Sending Incompatible Protocol Version");
+                    let message = IncompatibleProtocolVersionMessage::new(RAKNET_PROTOCOL_VERSION, communicator.config().guid);
+                    Self::send_message(&message, addr, communicator);
+                } else {
+                    let requested_mtu = UDP_HEADER_SIZE + 1 + 16 + 1 + request1.padding_length;
+                    let mtu = if requested_mtu < MAXIMUM_MTU_SIZE { requested_mtu } else { MAXIMUM_MTU_SIZE };
+                    // TODO: Add support for security
+                    debug!("Sending Open Connection Reply 1");
+                    let response = OpenConnectionReply1Message::new(communicator.config().guid, None, mtu);
+                    Self::send_message(&response, addr, communicator);
+                }
+            },
+            Err(err) => error!("Could not read open connection request 1: {:?}", err),
+        }
+    }
 
-        // TODO: Add support for security and supply challenge answer.
-        debug!("Sending Open Connection Reply 2");
-        let reply2 = OpenConnectionReply2Message::new(communicator.config().guid, addr, request2.mtu, None);
-        Self::send_message(&reply2, addr, communicator)?;
+    fn handle_open_connection_request2(&self, addr: SocketAddr, payload: &[u8], communicator: &mut Communicator<impl DatagramSocket>, connections: &mut HashMap<SocketAddr, Connection>) {
+        let mut reader = Cursor::new(payload);
+        match OpenConnectionRequest2Message::read_message(&mut reader) {
+            Ok(request2) => {
+                debug!("Received Open Connection Request 2: mtu={} guid={} binding_address={:?}", request2.mtu, request2.guid, request2.binding_address);        
+                
+                // TODO: Check security if enabled
 
-        Ok(())
+                let (guid_in_use, guid_in_use_by_same_addr) = connections.iter().find_map(|(remote_addr, conn)|
+                    if conn.guid() == request2.guid {
+                        Some((true, *remote_addr == addr))
+                    } else {
+                        None
+                    }).unwrap_or((false, false));
+
+                let (addr_in_use, addr_in_use_by_unverified_sender, conn) =
+                    if let Some(conn) = connections.get_mut(&addr) {
+                        (true, conn.state == ConnectionState::UnverifiedSender, Some(conn))
+                    } else {
+                        (false, false, None)
+                    };
+                
+                if addr_in_use_by_unverified_sender && guid_in_use_by_same_addr {
+                    if let Some(conn) = conn {
+                        // Duplicate connection request due to packet loss
+                        // Resend the reply
+                        // TODO: Add support for security (resend challenge answer)
+                        debug!("Sending Open Connection Reply2 (connection already exists)");
+                        let reply2 = OpenConnectionReply2Message::new(communicator.config().guid, addr, conn.mtu(), None);
+                        Self::send_message(&reply2, addr, communicator);
+                        return;
+                    }
+                }
+
+                if guid_in_use || addr_in_use {
+                    // GUID or IP address already in use
+                    debug!("Sending Already Connected");
+                    let message = ConnectErrorMessage::new(MessageId::AlreadyConnected, communicator.config().guid);
+                    Self::send_message(&message, addr, communicator);
+                    return;
+                }
+
+                if !Self::allow_incoming_connections(communicator.config(), connections) {
+                    debug!("Sending No Free Incoming Connections");
+                    let message = ConnectErrorMessage::new(MessageId::NoFreeIncomingConnections, communicator.config().guid);
+                    Self::send_message(&message, addr, communicator);
+                    return;
+                }
+
+                // TODO: Check if this IP has connected the last 100 ms. If so, send MessageId::IpRecentlyConnected.
+                // TODO: Check that the MTU is within our accepted range
+
+                let conn = Connection::incoming(request2.guid, request2.mtu);
+                connections.insert(addr, conn);
+
+                // TODO: Add support for security and supply challenge answer.
+                debug!("Sending Open Connection Reply 2");
+                let reply2 = OpenConnectionReply2Message::new(communicator.config().guid, addr, request2.mtu, None);
+                Self::send_message(&reply2, addr, communicator);
+            },
+            Err(err) => error!("Failed reading open connection request 2: {:?}", err),
+        }
     }
 
     fn allow_incoming_connections(config: &Config, connections: &HashMap<SocketAddr, Connection>) -> bool {
@@ -198,12 +207,17 @@ impl OfflinePacketHandler {
         number_of_incoming_connections < config.max_incoming_connections
     }
 
-    fn send_message(message: &dyn RakNetMessageWrite, dest: SocketAddr, communicator: &mut Communicator<impl DatagramSocket>) -> Result<()> {
+    fn send_message(message: &dyn RakNetMessageWrite, dest: SocketAddr, communicator: &mut Communicator<impl DatagramSocket>) {
         let mut payload = Vec::new();
-        message.write_message(&mut payload)?;
-        communicator.socket().send_datagram(&payload, dest)?;
-        debug!("Sent {} bytes to {}: {}", payload.len(), dest, utils::to_hex(&payload, 40));
-        Ok(())
+        match message.write_message(&mut payload) {
+            Ok(()) => {
+                match communicator.socket().send_datagram(&payload, dest) {
+                    Ok(_) => debug!("Sent {} bytes to {}: {}", payload.len(), dest, utils::to_hex(&payload, 40)),
+                    Err(err) => error!("Failed sending message: {:?}", err),
+                }
+            },
+            Err(err) => error!("Failed writing message to buffer: {:?}", err),
+        }
     }   
 }
 
@@ -265,7 +279,7 @@ mod tests {
         connections.insert(remote_addr, Connection::incoming(REMOTE_GUID, 1024));
 
         // Act
-        let handled = handler.process_offline_packet(remote_addr, &payload, &mut communicator, &mut connections).expect("Could not process packet");
+        let handled = handler.process_offline_packet(remote_addr, &payload, &mut communicator, &mut connections);
 
         // Assert
         let (message, addr) = receive_datagram::<OpenConnectionReply2Message>(&mut datagram_receiver);
@@ -293,7 +307,7 @@ mod tests {
         connections.insert(other_addr, Connection::incoming(REMOTE_GUID, 1024));
 
         // Act
-        let handled = handler.process_offline_packet(remote_addr, &payload, &mut communicator, &mut connections).expect("Could not process packet");
+        let handled = handler.process_offline_packet(remote_addr, &payload, &mut communicator, &mut connections);
 
         // Assert
         let (message, addr) = receive_datagram::<ConnectErrorMessage>(&mut datagram_receiver);
@@ -319,7 +333,7 @@ mod tests {
         connections.insert(remote_addr, Connection::incoming(other_guid, 1024));
 
         // Act
-        let handled = handler.process_offline_packet(remote_addr, &payload, &mut communicator, &mut connections).expect("Could not process packet");
+        let handled = handler.process_offline_packet(remote_addr, &payload, &mut communicator, &mut connections);
 
         // Assert
         let (message, addr) = receive_datagram::<ConnectErrorMessage>(&mut datagram_receiver);
@@ -351,7 +365,7 @@ mod tests {
         connections.insert(other_addr, connection);
 
         // Act
-        let handled = handler.process_offline_packet(remote_addr, &payload, &mut communicator, &mut connections).expect("Could not process packet");
+        let handled = handler.process_offline_packet(remote_addr, &payload, &mut communicator, &mut connections);
 
         // Assert
         let (message, addr) = receive_datagram::<ConnectErrorMessage>(&mut datagram_receiver);
