@@ -2,7 +2,8 @@ use std::{
     collections::HashMap,
     convert::TryFrom,
     io::Cursor,
-    net::SocketAddr
+    net::SocketAddr,
+    time::Instant,
 };
 
 use log::{debug, error};
@@ -51,7 +52,7 @@ impl OfflinePacketHandler {
 
     /// Process a possible offline packet.
     /// Returns true if the packet was handled.
-    pub fn process_offline_packet(&self, addr: SocketAddr, payload: &[u8], communicator: &mut Communicator<impl DatagramSocket>, connections: &mut HashMap<SocketAddr, Connection>) -> bool
+    pub fn process_offline_packet(&self, time: Instant, addr: SocketAddr, payload: &[u8], communicator: &mut Communicator<impl DatagramSocket>, connections: &mut HashMap<SocketAddr, Connection>) -> bool
     {
         // TODO: Check if remote peer is banned. If so, send MessageId::ConnectionBanned.
 
@@ -61,7 +62,7 @@ impl OfflinePacketHandler {
                 Ok(MessageId::UnconnectedPingOpenConnections) => self.handle_unconnected_ping_open_connections(addr, payload, communicator, connections),
                 Ok(MessageId::UnconnectedPong) => self.handle_unconnected_pong(addr, payload, communicator),
                 Ok(MessageId::OpenConnectionRequest1) => self.handle_open_connection_request1(addr, payload, communicator),
-                Ok(MessageId::OpenConnectionRequest2) => self.handle_open_connection_request2(addr, payload, communicator, connections),
+                Ok(MessageId::OpenConnectionRequest2) => self.handle_open_connection_request2(time, addr, payload, communicator, connections),
                 Ok(MessageId::OpenConnectionReply1) => {}, // TODO: Implement
                 Ok(MessageId::OpenConnectionReply2) => {}, // TODO: Implement
                 Ok(MessageId::OutOfBandInternal) => {}, // TODO: Implement
@@ -131,7 +132,7 @@ impl OfflinePacketHandler {
         }
     }
 
-    fn handle_open_connection_request2(&self, addr: SocketAddr, payload: &[u8], communicator: &mut Communicator<impl DatagramSocket>, connections: &mut HashMap<SocketAddr, Connection>) {
+    fn handle_open_connection_request2(&self, time: Instant, addr: SocketAddr, payload: &[u8], communicator: &mut Communicator<impl DatagramSocket>, connections: &mut HashMap<SocketAddr, Connection>) {
         let mut reader = Cursor::new(payload);
         match OpenConnectionRequest2Message::read_message(&mut reader) {
             Ok(request2) => {
@@ -183,7 +184,7 @@ impl OfflinePacketHandler {
                 // TODO: Check if this IP has connected the last 100 ms. If so, send MessageId::IpRecentlyConnected.
                 // TODO: Check that the MTU is within our accepted range
 
-                let conn = Connection::incoming(request2.guid, request2.mtu);
+                let conn = Connection::incoming(time, addr, request2.guid, request2.mtu);
                 connections.insert(addr, conn);
 
                 // TODO: Add support for security and supply challenge answer.
@@ -223,7 +224,7 @@ impl OfflinePacketHandler {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, io::Cursor, net::SocketAddr};
+    use std::{collections::HashMap, io::Cursor, net::SocketAddr, time::Instant};
     use crossbeam_channel::Receiver;
 
     use crate::{        
@@ -276,10 +277,10 @@ mod tests {
             guid: REMOTE_GUID,
         };
         message.write_message(&mut payload).expect("Could not write message");
-        connections.insert(remote_addr, Connection::incoming(REMOTE_GUID, 1024));
+        connections.insert(remote_addr, Connection::incoming(Instant::now(), remote_addr, REMOTE_GUID, 1024));
 
         // Act
-        let handled = handler.process_offline_packet(remote_addr, &payload, &mut communicator, &mut connections);
+        let handled = handler.process_offline_packet(Instant::now(), remote_addr, &payload, &mut communicator, &mut connections);
 
         // Assert
         let (message, addr) = receive_datagram::<OpenConnectionReply2Message>(&mut datagram_receiver);
@@ -304,10 +305,10 @@ mod tests {
         };
         message.write_message(&mut payload).expect("Could not write message");
         let other_addr = "192.168.1.99:19132".parse::<SocketAddr>().expect("Could not create address");
-        connections.insert(other_addr, Connection::incoming(REMOTE_GUID, 1024));
+        connections.insert(other_addr, Connection::incoming(Instant::now(), remote_addr, REMOTE_GUID, 1024));
 
         // Act
-        let handled = handler.process_offline_packet(remote_addr, &payload, &mut communicator, &mut connections);
+        let handled = handler.process_offline_packet(Instant::now(), remote_addr, &payload, &mut communicator, &mut connections);
 
         // Assert
         let (message, addr) = receive_datagram::<ConnectErrorMessage>(&mut datagram_receiver);
@@ -330,10 +331,10 @@ mod tests {
         };
         message.write_message(&mut payload).expect("Could not write message");
         let other_guid: u64 = 0x1111111111111111;
-        connections.insert(remote_addr, Connection::incoming(other_guid, 1024));
+        connections.insert(remote_addr, Connection::incoming(Instant::now(), remote_addr, other_guid, 1024));
 
         // Act
-        let handled = handler.process_offline_packet(remote_addr, &payload, &mut communicator, &mut connections);
+        let handled = handler.process_offline_packet(Instant::now(), remote_addr, &payload, &mut communicator, &mut connections);
 
         // Assert
         let (message, addr) = receive_datagram::<ConnectErrorMessage>(&mut datagram_receiver);
@@ -360,12 +361,12 @@ mod tests {
         message.write_message(&mut payload).expect("Could not write message");
         let other_guid: u64 = 0x1111111111111111;
         let other_addr = "192.168.1.99:19132".parse::<SocketAddr>().expect("Could not create address");
-        let mut connection = Connection::incoming(other_guid, 1024);
+        let mut connection = Connection::incoming(Instant::now(), remote_addr, other_guid, 1024);
         connection.state = ConnectionState::Connected;
         connections.insert(other_addr, connection);
 
         // Act
-        let handled = handler.process_offline_packet(remote_addr, &payload, &mut communicator, &mut connections);
+        let handled = handler.process_offline_packet(Instant::now(), remote_addr, &payload, &mut communicator, &mut connections);
 
         // Assert
         let (message, addr) = receive_datagram::<ConnectErrorMessage>(&mut datagram_receiver);

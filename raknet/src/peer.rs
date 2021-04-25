@@ -1,6 +1,6 @@
 use std::{
     net::{UdpSocket, ToSocketAddrs},
-    time::Duration,
+    time::{Duration, Instant},
 };
 use log::info;
 use crossbeam_channel::{unbounded, Sender, Receiver, Select};
@@ -71,7 +71,7 @@ impl RakNetPeer {
     /// events. For an automatic processing loop use `start_processing`
     /// or `start_processing_with_duration` instead.
     pub fn process(&mut self) {
-        self.connection_manager.process();
+        self.connection_manager.process(Instant::now());
     }
 
     /// Starts a loop that processes incoming and outgoing

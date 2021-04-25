@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, collections::HashMap};
+use std::{net::SocketAddr, collections::HashMap, time::Instant};
 
 use log::{error, debug};
 
@@ -38,7 +38,7 @@ impl<T: DatagramSocket> ConnectionManager<T> {
     }
 
     /// Sends and receives packages/events and updates connections.
-    pub fn process(&mut self) {
+    pub fn process(&mut self, time: Instant) {
         let communicator = &mut self.communicator;
 
         // Process all incoming packets
@@ -48,9 +48,9 @@ impl<T: DatagramSocket> ConnectionManager<T> {
             {
                 Ok((payload, addr)) => {
                     debug!("Received {} bytes from {}: {}", payload.len(), addr, utils::to_hex(&payload, 40));
-                    if !self.offline_packet_handler.process_offline_packet(addr, payload, communicator, &mut self.connections) {
-                        if let Some(_conn) = self.connections.get_mut(&addr) {
-                            // TODO: Process packet from connected remote peer
+                    if !self.offline_packet_handler.process_offline_packet(time, addr, payload, communicator, &mut self.connections) {
+                        if let Some(conn) = self.connections.get_mut(&addr) {
+                            conn.process_incoming_packet(payload, time, communicator);
                         }
                     }
                 },
@@ -62,6 +62,9 @@ impl<T: DatagramSocket> ConnectionManager<T> {
                 }
             }
         }
+
+        // Check if any connection should be dropped
+        self.connections.retain(|_, conn| !conn.should_drop(time, communicator));
     }
 }
 
@@ -70,6 +73,7 @@ mod tests {
     use std::{
         io::Cursor,
         net::SocketAddr,
+        time::Instant,
     };   
     use crossbeam_channel::{Sender, Receiver};
     use crate::{
@@ -129,7 +133,7 @@ mod tests {
         send_datagram(ping, &mut datagram_sender, remote_addr);
         
         // Act
-        connection_manager.process();
+        connection_manager.process(Instant::now());
 
         // Assert
         let (pong, addr) = receive_datagram::<UnconnectedPongMessage>(&mut datagram_receiver);
@@ -150,7 +154,7 @@ mod tests {
         send_datagram(req1, &mut datagram_sender, remote_addr);
 
         // Act
-        connection_manager.process();
+        connection_manager.process(Instant::now());
 
         // Assert
         let (message, addr) = receive_datagram::<IncompatibleProtocolVersionMessage>(&mut datagram_receiver);
@@ -170,7 +174,7 @@ mod tests {
         send_datagram(req1, &mut datagram_sender, remote_addr);
 
         // Act
-        connection_manager.process();
+        connection_manager.process(Instant::now());
 
         // Assert
         let (message, addr) = receive_datagram::<OpenConnectionReply1Message>(&mut datagram_receiver);
@@ -193,7 +197,7 @@ mod tests {
         send_datagram(req2, &mut datagram_sender, remote_addr);
 
         // Act
-        connection_manager.process();
+        connection_manager.process(Instant::now());
 
         // Assert
         let (message, addr) = receive_datagram::<OpenConnectionReply2Message>(&mut datagram_receiver);

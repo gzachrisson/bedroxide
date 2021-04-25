@@ -8,6 +8,13 @@ pub struct Config {
     /// The maximum number of incoming connections, thus not initiated
     /// by this peer. If set to 0 the peer will only act as a client. 
     pub max_incoming_connections: usize,
+
+    /// The time in milliseconds that a remote peer has to send a
+    /// connection request before the connection get dropped.
+    ///
+    /// The time is measured from when this peer has sent
+    /// an "open connection reply 2" until we receive a "connection request".
+    pub incoming_connection_timeout_in_ms: u128,
 }
 
 impl Default for Config {
@@ -15,6 +22,7 @@ impl Default for Config {
         Config {
             guid: rand::random(),
             max_incoming_connections: 50,
+            incoming_connection_timeout_in_ms: 10000,
         }
     }
 }
