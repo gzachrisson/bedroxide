@@ -1,10 +1,9 @@
 use std::{
-    convert::TryInto,
     io::Read,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV6},
 };
 
-use crate::error::{Error, ReadError, Result};
+use crate::{error::{Error, ReadError, Result}, number::u24};
 
 pub trait RakNetRead {
     fn read_u8(&mut self) -> Result<u8>;
@@ -14,9 +13,11 @@ pub trait RakNetRead {
     fn read_bytes_and_compare(&mut self, data: &[u8]) -> Result<()>;
     fn read_u16(&mut self) -> Result<u16>;
     fn read_u16_be(&mut self) -> Result<u16>;
+    fn read_u24(&mut self) -> Result<u24>;
     fn read_u32(&mut self) -> Result<u32>;
     fn read_u32_be(&mut self) -> Result<u32>;
     fn read_u64_be(&mut self) -> Result<u64>;
+    fn read_f32_be(&mut self) -> Result<f32>;
     fn read_fixed_string(&mut self) -> Result<String>;
     fn read_zero_padding(&mut self) -> Result<u16>;
     fn read_socket_addr(&mut self) -> Result<SocketAddr>;
@@ -26,7 +27,7 @@ impl<T> RakNetRead for T where T: Read {
     fn read_u8(&mut self) -> Result<u8> {
         let mut buf = [0u8; 1];
         self.read_exact(&mut buf)?;
-        Ok(u8::from_le_bytes(buf[0..1].try_into().unwrap()))
+        Ok(u8::from_le_bytes(buf))
     }
 
     fn read_u8_and_compare(&mut self, data: u8) -> Result<()> {
@@ -45,7 +46,6 @@ impl<T> RakNetRead for T where T: Read {
     }
 
     fn read_bytes_to_end(&mut self, buf: &mut Vec<u8>) -> Result<()> {        
-        buf.clear();
         self.read_to_end(buf)?;
         Ok(())
     }
@@ -63,39 +63,50 @@ impl<T> RakNetRead for T where T: Read {
     fn read_u16(&mut self) -> Result<u16> {
         let mut buf = [0u8; 2];
         self.read_exact(&mut buf)?;
-        Ok(u16::from_le_bytes(buf[0..2].try_into().unwrap()))
+        Ok(u16::from_le_bytes(buf))
     }
 
     fn read_u16_be(&mut self) -> Result<u16> {
         let mut buf = [0u8; 2];
         self.read_exact(&mut buf)?;
-        Ok(u16::from_be_bytes(buf[0..2].try_into().unwrap()))
+        Ok(u16::from_be_bytes(buf))
+    }
+
+    fn read_u24(&mut self) -> Result<u24> {
+        let mut buf = [0u8; 3];
+        self.read_exact(&mut buf)?;
+        Ok(u24::from_le_bytes(buf))
     }
 
     fn read_u32(&mut self) -> Result<u32> {
         let mut buf = [0u8; 4];
         self.read_exact(&mut buf)?;
-        Ok(u32::from_le_bytes(buf[0..4].try_into().unwrap()))
+        Ok(u32::from_le_bytes(buf))
     }
 
     fn read_u32_be(&mut self) -> Result<u32> {
         let mut buf = [0u8; 4];
         self.read_exact(&mut buf)?;
-        Ok(u32::from_be_bytes(buf[0..4].try_into().unwrap()))
+        Ok(u32::from_be_bytes(buf))
     }
 
     fn read_u64_be(&mut self) -> Result<u64> {
         let mut buf = [0u8; 8];
         self.read_exact(&mut buf)?;
-        Ok(u64::from_be_bytes(buf[0..8].try_into().unwrap()))
+        Ok(u64::from_be_bytes(buf))
+    }
+
+    fn read_f32_be(&mut self) -> Result<f32> {
+        let mut buf = [0u8; 4];
+        self.read_exact(&mut buf)?;
+        Ok(f32::from_be_bytes(buf))
     }
 
     fn read_fixed_string(&mut self) -> Result<String> {
         let length: usize = self.read_u16_be()?.into();
         let mut buf = vec![0u8; length];
         self.read_exact(&mut buf)?;
-        let s = String::from_utf8(buf)?;
-        Ok(s)
+        Ok(String::from_utf8(buf)?)
     }
 
     fn read_zero_padding(&mut self) -> Result<u16> {

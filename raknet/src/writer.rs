@@ -3,16 +3,18 @@ use std::{
     net::SocketAddr,
 };
 
-use crate::error::{Result, WriteError};
+use crate::{Result, u24, WriteError};
 
 pub trait RakNetWrite {
     fn write_u8(&mut self, b: u8) -> Result<usize>;
     fn write_bytes(&mut self, b: &[u8]) -> Result<usize>;
     fn write_u16(&mut self, us: u16) -> Result<usize>;
     fn write_u16_be(&mut self, us: u16) -> Result<usize>;
+    fn write_u24(&mut self, value: u24) -> Result<usize>;
     fn write_u32(&mut self, u: u32) -> Result<usize>;
     fn write_u32_be(&mut self, u: u32) -> Result<usize>;
     fn write_u64_be(&mut self, ul: u64) -> Result<usize>;
+    fn write_f32_be(&mut self, value: f32) -> Result<usize>;
     fn write_fixed_string(&mut self, s: &str) -> Result<usize>;
     fn write_zero_padding(&mut self, mtu: u16) -> Result<usize>;
     fn write_socket_addr(&mut self, addr: &SocketAddr) -> Result<usize>;
@@ -51,6 +53,14 @@ impl<T> RakNetWrite for T where T: Write {
         Ok(n)
     }
 
+    fn write_u24(&mut self, value: u24) -> Result<usize> {
+        let n = self.write(&value.to_le_bytes())?;
+        if n != 3 {
+            return Err(WriteError::NotAllBytesWritten(n).into())
+        }
+        Ok(n)
+    }    
+
     fn write_u32(&mut self, u: u32) -> Result<usize> {
         let n = self.write(&u.to_le_bytes())?;
         if n != 4 {
@@ -70,6 +80,14 @@ impl<T> RakNetWrite for T where T: Write {
     fn write_u64_be(&mut self, ul: u64) -> Result<usize> {
         let n = self.write(&ul.to_be_bytes())?;
         if n != 8 {
+            return Err(WriteError::NotAllBytesWritten(n).into())
+        }
+        Ok(n)
+    }
+
+    fn write_f32_be(&mut self, value: f32) -> Result<usize> {
+        let n = self.write(&value.to_be_bytes())?;
+        if n != 4 {
             return Err(WriteError::NotAllBytesWritten(n).into())
         }
         Ok(n)

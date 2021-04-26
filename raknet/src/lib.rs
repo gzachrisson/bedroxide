@@ -3,6 +3,7 @@ pub use crossbeam_channel as channel;
 pub use self::{
     config::Config,
     error::{Error, Result, ReadError, WriteError},
+    number::{SequenceNumber, u24},
     peer::{RakNetPeer, Command},
     reader::RakNetRead,
     writer::RakNetWrite,
@@ -13,9 +14,11 @@ mod config;
 mod connection;
 mod connection_manager;
 mod constants;
+mod datagram_header;
 mod error;
 mod message_ids;
 mod messages;
+mod number;
 mod offline_packet_handler;
 mod peer;
 mod reader;

@@ -1,7 +1,7 @@
-use std::{net::SocketAddr, time::Instant};
-use log::debug;
+use std::{net::SocketAddr, io::Cursor, time::Instant};
+use log::{debug, error};
 
-use crate::{communicator::Communicator, socket::DatagramSocket};
+use crate::{communicator::Communicator, datagram_header::DatagramHeader, socket::DatagramSocket};
 
 pub struct Connection {
     connection_time: Instant,
@@ -41,8 +41,24 @@ impl Connection {
     }
 
     /// Processes an incoming package.
-    pub fn process_incoming_packet(&mut self, _payload: &[u8], _time: Instant, _communicator: &mut Communicator<impl DatagramSocket>) {
+    pub fn process_incoming_packet(&mut self, payload: &[u8], _time: Instant, _communicator: &mut Communicator<impl DatagramSocket>) {
         // TODO: Implement
+
+        let mut reader = Cursor::new(payload);
+        match DatagramHeader::read(&mut reader) {
+            Ok(DatagramHeader::Ack { data_arrival_rate }) => {
+                debug!("Received ACK. data_arrival_rate={:?}", data_arrival_rate);
+            },
+            Ok(DatagramHeader::Nack) => {
+                debug!("Received NACK");
+            },
+            Ok(DatagramHeader::Packet {is_packet_pair, is_continuous_send, needs_data_arrival_rate, datagram_number }) => {
+                debug!("Received a datagram of packets. is_packet_pair={}, is_continuous_send={}, needs_data_arrival_rate={}, datagram_number={}", 
+                is_packet_pair, is_continuous_send, needs_data_arrival_rate, datagram_number);
+            },
+            Err(err) => error!("Error parsing datagram header: {:?}", err),
+        };
+
     }
 
     /// Returns true if this connection should be dropped.

@@ -56,6 +56,8 @@ impl From<WriteError> for Error {
 pub enum ReadError {
     /// The read value is not the same as the compare value.
     CompareFailed,
+    /// The header was invalid.
+    InvalidHeader,
     /// The IP version read was not 4 or 6.
     InvalidIpVersion,
     /// The read Offline Message ID was invalid.
@@ -65,7 +67,7 @@ pub enum ReadError {
     /// Not all bytes could be read.
     NotAllBytesRead(usize),
     /// The read zero padding was longer than allowed.
-    TooLongZeroPadding,
+    TooLongZeroPadding,    
 }
 
 impl std::error::Error for ReadError {}
@@ -74,6 +76,7 @@ impl fmt::Display for ReadError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ReadError::CompareFailed => write!(f, "Read data is not the same as the compare value."),
+            ReadError::InvalidHeader => write!(f, "Read invalid header."),
             ReadError::InvalidIpVersion => write!(f, "Received invalid IP version."),
             ReadError::InvalidOfflineMessageId => write!(f, "Received invalid Offline Message ID."),
             ReadError::InvalidString(err) => write!(f, "Could not parse string: {:?}", err),
