@@ -2,7 +2,8 @@ use std::option::Option;
 
 use crate::{RakNetRead, RakNetWrite, ReadError, Result, SequenceNumber, u24};
 
-pub enum DatagramHeader {
+#[derive(Debug, PartialEq)]
+pub enum DatagramHeader {    
     Ack { data_arrival_rate: Option<f32> },
     Nack,
     Packet { is_packet_pair: bool, is_continuous_send: bool, needs_data_arrival_rate: bool, datagram_number: SequenceNumber },
@@ -68,4 +69,110 @@ impl DatagramHeader {
         }
         Ok(())
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{convert::TryFrom, io::Cursor, matches};
+    
+    use crate::{datagram_header::DatagramHeader, SequenceNumber};
+
+    #[test]
+    fn read_ack_header_with_data_arrival_rate() {
+        // Arrange
+        let payload = [0b1110_0000u8, 0x40, 0xa0, 0x00, 0x00, 0x00];
+        let mut reader = Cursor::new(payload);
+
+        // Act
+        let header = DatagramHeader::read(&mut reader).expect("Couldn't read header");
+
+        // Assert
+        assert!(matches!(header, DatagramHeader::Ack { data_arrival_rate: Some(rate) } if rate == 5.0));
+    }
+
+    #[test]
+    fn read_ack_header_without_data_arrival_rate() {
+        // Arrange
+        let payload = [0b1100_0000u8, 0x00];
+        let mut reader = Cursor::new(payload);
+
+        // Act
+        let header = DatagramHeader::read(&mut reader).expect("Couldn't read header");
+
+        // Assert
+        assert!(matches!(header, DatagramHeader::Ack { data_arrival_rate: None }));
+    }
+
+    #[test]
+    fn read_nack_header() {
+        // Arrange
+        let payload = [0b1010_0000u8, 0x00];
+        let mut reader = Cursor::new(payload);
+
+        // Act
+        let header = DatagramHeader::read(&mut reader).expect("Couldn't read header");
+
+        // Assert
+        assert!(matches!(header, DatagramHeader::Nack));
+    }
+
+    #[test]
+    fn read_packet_header() {
+        // Arrange
+        let payload = [0b1000_0000u8, 0x56, 0x34, 0x12];
+        let mut reader = Cursor::new(payload);
+
+        // Act
+        let header = DatagramHeader::read(&mut reader).expect("Couldn't read header");
+
+        // Assert
+        let expected_datagram_number = SequenceNumber::try_from(0x123456u32).unwrap();
+        assert!(matches!(header, DatagramHeader::Packet { is_packet_pair, is_continuous_send, needs_data_arrival_rate, datagram_number }
+            if !is_packet_pair && !is_continuous_send && !needs_data_arrival_rate && datagram_number == expected_datagram_number));
+    }
+
+    #[test]
+    fn read_packet_header_packet_pair() {
+        // Arrange
+        let payload = [0b1001_0000u8, 0x56, 0x34, 0x12];
+        let mut reader = Cursor::new(payload);
+
+        // Act
+        let header = DatagramHeader::read(&mut reader).expect("Couldn't read header");
+
+        // Assert
+        let expected_datagram_number = SequenceNumber::try_from(0x123456u32).unwrap();
+        assert!(matches!(header, DatagramHeader::Packet { is_packet_pair, is_continuous_send, needs_data_arrival_rate, datagram_number }
+            if is_packet_pair && !is_continuous_send && !needs_data_arrival_rate && datagram_number == expected_datagram_number));
+    }    
+
+    #[test]
+    fn read_packet_header_continuous_send() {
+        // Arrange
+        let payload = [0b1000_1000u8, 0x56, 0x34, 0x12];
+        let mut reader = Cursor::new(payload);
+
+        // Act
+        let header = DatagramHeader::read(&mut reader).expect("Couldn't read header");
+
+        // Assert
+        let expected_datagram_number = SequenceNumber::try_from(0x123456u32).unwrap();
+        assert!(matches!(header, DatagramHeader::Packet { is_packet_pair, is_continuous_send, needs_data_arrival_rate, datagram_number }
+            if !is_packet_pair && is_continuous_send && !needs_data_arrival_rate && datagram_number == expected_datagram_number));
+    }        
+
+    #[test]
+    fn read_packet_header_needs_data_arrival_rate() {
+        // Arrange
+        let payload = [0b1000_0100u8, 0x56, 0x34, 0x12];
+        let mut reader = Cursor::new(payload);
+
+        // Act
+        let header = DatagramHeader::read(&mut reader).expect("Couldn't read header");
+
+        // Assert
+        let expected_datagram_number = SequenceNumber::try_from(0x123456u32).unwrap();
+        assert!(matches!(header, DatagramHeader::Packet { is_packet_pair, is_continuous_send, needs_data_arrival_rate, datagram_number }
+            if !is_packet_pair && !is_continuous_send && needs_data_arrival_rate && datagram_number == expected_datagram_number));
+    }  
 }
