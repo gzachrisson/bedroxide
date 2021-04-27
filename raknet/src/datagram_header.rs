@@ -38,7 +38,8 @@ impl DatagramHeader {
         }
     }
 
-    pub fn _write(&self, writer: &mut dyn RakNetWrite) -> Result<()> {
+    #[allow(dead_code)]
+    pub fn write(&self, writer: &mut dyn RakNetWrite) -> Result<()> {
         // Bit 7 = "isValid"
         let mut bitflags: u8 = 1 << 7;
         match self {
@@ -51,7 +52,7 @@ impl DatagramHeader {
                     writer.write_u8(bitflags)?;
                     writer.write_f32_be(*data_arrival_rate)?;
                 } else {
-
+                    writer.write_u8(bitflags)?;
                 }
             },
             DatagramHeader::Nack => {
@@ -80,7 +81,7 @@ mod tests {
     #[test]
     fn read_ack_header_with_data_arrival_rate() {
         // Arrange
-        let payload = [0b1110_0000u8, 0x40, 0xa0, 0x00, 0x00, 0x00];
+        let payload = [0b1110_0000u8, 0x40, 0xa0, 0x00, 0x00];
         let mut reader = Cursor::new(payload);
 
         // Act
@@ -93,7 +94,7 @@ mod tests {
     #[test]
     fn read_ack_header_without_data_arrival_rate() {
         // Arrange
-        let payload = [0b1100_0000u8, 0x00];
+        let payload = [0b1100_0000u8];
         let mut reader = Cursor::new(payload);
 
         // Act
@@ -106,7 +107,7 @@ mod tests {
     #[test]
     fn read_nack_header() {
         // Arrange
-        let payload = [0b1010_0000u8, 0x00];
+        let payload = [0b1010_0000u8];
         let mut reader = Cursor::new(payload);
 
         // Act
@@ -174,5 +175,116 @@ mod tests {
         let expected_datagram_number = SequenceNumber::try_from(0x123456u32).unwrap();
         assert!(matches!(header, DatagramHeader::Packet { is_packet_pair, is_continuous_send, needs_data_arrival_rate, datagram_number }
             if !is_packet_pair && !is_continuous_send && needs_data_arrival_rate && datagram_number == expected_datagram_number));
+    }  
+
+    #[test]
+    fn write_ack_header_with_data_arrival_rate() {
+        // Arrange
+        let header = DatagramHeader::Ack { data_arrival_rate: Some(5.0) };
+        let mut payload = Vec::new();
+
+        // Act
+        header.write(&mut payload).expect("Couldn't write header");
+
+        // Assert
+        assert_eq!(payload, vec![0b1110_0000u8, 0x40, 0xa0, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn write_ack_header_without_data_arrival_rate() {
+        // Arrange
+        let header = DatagramHeader::Ack { data_arrival_rate: None };
+        let mut payload = Vec::new();
+
+        // Act
+        header.write(&mut payload).expect("Couldn't write header");
+
+        // Assert
+        assert_eq!(payload, vec![0b1100_0000u8]);
+    }
+
+    #[test]
+    fn write_nack_header() {
+        // Arrange
+        let header = DatagramHeader::Nack;
+        let mut payload = Vec::new();
+
+        // Act
+        header.write(&mut payload).expect("Couldn't write header");
+
+        // Assert
+        assert_eq!(payload, vec![0b1010_0000u8]);
+    }
+
+    #[test]
+    fn write_packet_header() {
+        // Arrange
+        let header = DatagramHeader::Packet {
+            is_packet_pair: false,
+            is_continuous_send: false,
+            needs_data_arrival_rate: false,
+            datagram_number: SequenceNumber::try_from(0x123456u32).unwrap()
+        };
+        let mut payload = Vec::new();
+
+        // Act
+        header.write(&mut payload).expect("Couldn't write header");
+
+        // Assert
+        assert_eq!(payload, vec![0b1000_0000u8, 0x56, 0x34, 0x12]);
+    }
+
+    #[test]
+    fn write_packet_header_packet_pair() {
+        // Arrange
+        let header = DatagramHeader::Packet {
+            is_packet_pair: true,
+            is_continuous_send: false,
+            needs_data_arrival_rate: false,
+            datagram_number: SequenceNumber::try_from(0x123456u32).unwrap()
+        };
+        let mut payload = Vec::new();
+
+        // Act
+        header.write(&mut payload).expect("Couldn't write header");
+
+        // Assert
+        assert_eq!(payload, vec![0b1001_0000u8, 0x56, 0x34, 0x12]);
+    }    
+
+    #[test]
+    fn write_packet_header_continuous_send() {
+        // Arrange
+        let header = DatagramHeader::Packet {
+            is_packet_pair: false,
+            is_continuous_send: true,
+            needs_data_arrival_rate: false,
+            datagram_number: SequenceNumber::try_from(0x123456u32).unwrap()
+        };
+        let mut payload = Vec::new();
+
+        // Act
+        header.write(&mut payload).expect("Couldn't write header");
+
+        // Assert
+        assert_eq!(payload, vec![0b1000_1000u8, 0x56, 0x34, 0x12]);
+    }        
+
+    #[test]
+    fn write_packet_header_needs_data_arrival_rate() {
+        // Arrange
+        let header = DatagramHeader::Packet {
+            is_packet_pair: false,
+            is_continuous_send: false,
+            needs_data_arrival_rate: true,
+            datagram_number: SequenceNumber::try_from(0x123456u32).unwrap()
+        };
+        let mut payload = Vec::new();
+
+        // Act
+        header.write(&mut payload).expect("Couldn't write header");
+
+        // Assert
+        assert_eq!(payload, vec![0b1000_0100u8, 0x56, 0x34, 0x12]);
     }  
 }
