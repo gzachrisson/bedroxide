@@ -1,12 +1,12 @@
 use std::option::Option;
 
-use crate::{RakNetRead, RakNetWrite, ReadError, Result, SequenceNumber, u24};
+use crate::{RakNetRead, RakNetWrite, ReadError, Result, DatagramSequenceNumber, u24};
 
 #[derive(Debug, PartialEq)]
 pub enum DatagramHeader {    
     Ack { data_arrival_rate: Option<f32> },
     Nack,
-    Packet { is_packet_pair: bool, is_continuous_send: bool, needs_data_arrival_rate: bool, datagram_number: SequenceNumber },
+    Packet { is_packet_pair: bool, is_continuous_send: bool, needs_data_arrival_rate: bool, datagram_number: DatagramSequenceNumber },
 }
 
 impl DatagramHeader {
@@ -32,7 +32,7 @@ impl DatagramHeader {
                 let is_packet_pair = (bitflags & (1 << 4)) != 0;
                 let is_continuous_send  = (bitflags & (1 << 3)) != 0; 
                 let needs_data_arrival_rate = (bitflags & (1 << 2)) != 0;
-                let datagram_number = SequenceNumber::from(reader.read_u24()?);
+                let datagram_number = DatagramSequenceNumber::from(reader.read_u24()?);
                 Ok(DatagramHeader::Packet { is_packet_pair, is_continuous_send, needs_data_arrival_rate, datagram_number })
             }
         }
@@ -76,7 +76,7 @@ impl DatagramHeader {
 mod tests {
     use std::{convert::TryFrom, io::Cursor, matches};
     
-    use crate::{datagram_header::DatagramHeader, SequenceNumber};
+    use crate::{datagram_header::DatagramHeader, DatagramSequenceNumber};
 
     #[test]
     fn read_ack_header_with_data_arrival_rate() {
@@ -127,7 +127,7 @@ mod tests {
         let header = DatagramHeader::read(&mut reader).expect("Couldn't read header");
 
         // Assert
-        let expected_datagram_number = SequenceNumber::try_from(0x123456u32).unwrap();
+        let expected_datagram_number = DatagramSequenceNumber::try_from(0x123456u32).unwrap();
         assert!(matches!(header, DatagramHeader::Packet { is_packet_pair, is_continuous_send, needs_data_arrival_rate, datagram_number }
             if !is_packet_pair && !is_continuous_send && !needs_data_arrival_rate && datagram_number == expected_datagram_number));
     }
@@ -142,7 +142,7 @@ mod tests {
         let header = DatagramHeader::read(&mut reader).expect("Couldn't read header");
 
         // Assert
-        let expected_datagram_number = SequenceNumber::try_from(0x123456u32).unwrap();
+        let expected_datagram_number = DatagramSequenceNumber::try_from(0x123456u32).unwrap();
         assert!(matches!(header, DatagramHeader::Packet { is_packet_pair, is_continuous_send, needs_data_arrival_rate, datagram_number }
             if is_packet_pair && !is_continuous_send && !needs_data_arrival_rate && datagram_number == expected_datagram_number));
     }    
@@ -157,7 +157,7 @@ mod tests {
         let header = DatagramHeader::read(&mut reader).expect("Couldn't read header");
 
         // Assert
-        let expected_datagram_number = SequenceNumber::try_from(0x123456u32).unwrap();
+        let expected_datagram_number = DatagramSequenceNumber::try_from(0x123456u32).unwrap();
         assert!(matches!(header, DatagramHeader::Packet { is_packet_pair, is_continuous_send, needs_data_arrival_rate, datagram_number }
             if !is_packet_pair && is_continuous_send && !needs_data_arrival_rate && datagram_number == expected_datagram_number));
     }        
@@ -172,7 +172,7 @@ mod tests {
         let header = DatagramHeader::read(&mut reader).expect("Couldn't read header");
 
         // Assert
-        let expected_datagram_number = SequenceNumber::try_from(0x123456u32).unwrap();
+        let expected_datagram_number = DatagramSequenceNumber::try_from(0x123456u32).unwrap();
         assert!(matches!(header, DatagramHeader::Packet { is_packet_pair, is_continuous_send, needs_data_arrival_rate, datagram_number }
             if !is_packet_pair && !is_continuous_send && needs_data_arrival_rate && datagram_number == expected_datagram_number));
     }  
@@ -223,7 +223,7 @@ mod tests {
             is_packet_pair: false,
             is_continuous_send: false,
             needs_data_arrival_rate: false,
-            datagram_number: SequenceNumber::try_from(0x123456u32).unwrap()
+            datagram_number: DatagramSequenceNumber::try_from(0x123456u32).unwrap()
         };
         let mut payload = Vec::new();
 
@@ -241,7 +241,7 @@ mod tests {
             is_packet_pair: true,
             is_continuous_send: false,
             needs_data_arrival_rate: false,
-            datagram_number: SequenceNumber::try_from(0x123456u32).unwrap()
+            datagram_number: DatagramSequenceNumber::try_from(0x123456u32).unwrap()
         };
         let mut payload = Vec::new();
 
@@ -259,7 +259,7 @@ mod tests {
             is_packet_pair: false,
             is_continuous_send: true,
             needs_data_arrival_rate: false,
-            datagram_number: SequenceNumber::try_from(0x123456u32).unwrap()
+            datagram_number: DatagramSequenceNumber::try_from(0x123456u32).unwrap()
         };
         let mut payload = Vec::new();
 
@@ -277,7 +277,7 @@ mod tests {
             is_packet_pair: false,
             is_continuous_send: false,
             needs_data_arrival_rate: true,
-            datagram_number: SequenceNumber::try_from(0x123456u32).unwrap()
+            datagram_number: DatagramSequenceNumber::try_from(0x123456u32).unwrap()
         };
         let mut payload = Vec::new();
 

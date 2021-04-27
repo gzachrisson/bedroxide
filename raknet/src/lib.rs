@@ -3,7 +3,7 @@ pub use crossbeam_channel as channel;
 pub use self::{
     config::Config,
     error::{Error, Result, ReadError, WriteError},
-    number::{SequenceNumber, u24},
+    number::{DatagramSequenceNumber, u24},
     peer::{RakNetPeer, Command},
     reader::RakNetRead,
     writer::RakNetWrite,

@@ -48,6 +48,8 @@ impl Connection {
         match DatagramHeader::read(&mut reader) {
             Ok(DatagramHeader::Ack { data_arrival_rate }) => {
                 debug!("Received ACK. data_arrival_rate={:?}", data_arrival_rate);
+                // TODO: Send ACK receipt to user for unreliable packets with ACK receipt requested (and remove packets from list)
+                // TODO: Remove ACK:ed packets from resend list (and send ACK receipt to user) (and delete older reliable sequenced packets (not needed?))
             },
             Ok(DatagramHeader::Nack) => {
                 debug!("Received NACK");

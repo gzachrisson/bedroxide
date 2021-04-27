@@ -1,6 +1,6 @@
 use std::{cmp::Ordering, convert::TryFrom, fmt::Display, hash::{Hash, Hasher}, ops::{Add, Div, Mul, Sub}};
 
-pub type SequenceNumber = u24;
+pub type DatagramSequenceNumber = u24;
 
 #[allow(non_camel_case_types)]
 #[derive(Default, Clone, Copy, Debug)]
