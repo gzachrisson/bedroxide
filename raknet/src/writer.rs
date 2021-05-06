@@ -5,7 +5,7 @@ use std::{
 
 use crate::{Result, u24, WriteError};
 
-pub trait RakNetWrite {
+pub trait DataWrite {
     fn write_u8(&mut self, b: u8) -> Result<usize>;
     fn write_bytes(&mut self, b: &[u8]) -> Result<usize>;
     fn write_u16(&mut self, us: u16) -> Result<usize>;
@@ -20,7 +20,7 @@ pub trait RakNetWrite {
     fn write_socket_addr(&mut self, addr: &SocketAddr) -> Result<usize>;
 }
 
-impl<T> RakNetWrite for T where T: Write {
+impl<T> DataWrite for T where T: Write {
     fn write_u8(&mut self, b: u8) -> Result<usize> {
         let n = self.write(&[b])?;
         if n != 1 {
@@ -138,16 +138,16 @@ impl<T> RakNetWrite for T where T: Write {
     }    
 }
 
-pub trait RakNetMessageWrite {
+pub trait OfflineMessageWrite {
     /// Writes a message including the message identifier.
-    fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<()>;
+    fn write_message(&self, writer: &mut dyn DataWrite) -> Result<()>;
 }
 
 #[cfg(test)]
 mod tests {
     use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
 
-    use crate::writer::RakNetWrite;
+    use crate::writer::DataWrite;
 
     #[test]
     fn write_socket_addr_ipv4() {

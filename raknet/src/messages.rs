@@ -4,8 +4,8 @@ use crate::{
     constants::OFFLINE_MESSAGE_ID,
     error::{Error, ReadError, Result},
     message_ids::MessageId,
-    reader::{RakNetRead, RakNetMessageRead},
-    writer::{RakNetWrite, RakNetMessageWrite},
+    reader::{DataRead, OfflineMessageRead},
+    writer::{DataWrite, OfflineMessageWrite},
 };
 
 pub struct UnconnectedPingMessage {
@@ -14,8 +14,8 @@ pub struct UnconnectedPingMessage {
     pub client_guid: u64,
 }
 
-impl RakNetMessageRead for UnconnectedPingMessage {
-    fn read_message(reader: &mut dyn RakNetRead) -> Result<Self> {
+impl OfflineMessageRead for UnconnectedPingMessage {
+    fn read_message(reader: &mut dyn DataRead) -> Result<Self> {
         let message_id_byte = reader.read_u8()?;
         let message_id = match MessageId::try_from(message_id_byte) {
             Ok(MessageId::UnconnectedPing) => MessageId::UnconnectedPing,
@@ -29,8 +29,8 @@ impl RakNetMessageRead for UnconnectedPingMessage {
     }
 }
 
-impl RakNetMessageWrite for UnconnectedPingMessage {
-    fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<()> {
+impl OfflineMessageWrite for UnconnectedPingMessage {
+    fn write_message(&self, writer: &mut dyn DataWrite) -> Result<()> {
         writer.write_u8(self.message_id.into())?;
         writer.write_u64_be(self.time)?;
         writer.write_bytes(&OFFLINE_MESSAGE_ID)?;
@@ -55,8 +55,8 @@ impl UnconnectedPongMessage {
     }
 }
 
-impl RakNetMessageRead for UnconnectedPongMessage {
-    fn read_message(reader: &mut dyn RakNetRead) -> Result<Self> {
+impl OfflineMessageRead for UnconnectedPongMessage {
+    fn read_message(reader: &mut dyn DataRead) -> Result<Self> {
         reader.read_u8_and_compare(MessageId::UnconnectedPong.into())?;
         let time = reader.read_u64_be()?;
         let guid = reader.read_u64_be()?;
@@ -67,8 +67,8 @@ impl RakNetMessageRead for UnconnectedPongMessage {
     }
 }
 
-impl RakNetMessageWrite for UnconnectedPongMessage {
-    fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<()> {
+impl OfflineMessageWrite for UnconnectedPongMessage {
+    fn write_message(&self, writer: &mut dyn DataWrite) -> Result<()> {
         writer.write_u8(MessageId::UnconnectedPong.into())?;
         writer.write_u64_be(self.time)?;
         writer.write_u64_be(self.guid)?;
@@ -83,8 +83,8 @@ pub struct OpenConnectionRequest1Message {
     pub padding_length: u16,
 }
 
-impl RakNetMessageRead for OpenConnectionRequest1Message {
-    fn read_message(reader: &mut dyn RakNetRead) -> Result<Self> {
+impl OfflineMessageRead for OpenConnectionRequest1Message {
+    fn read_message(reader: &mut dyn DataRead) -> Result<Self> {
         reader.read_u8_and_compare(MessageId::OpenConnectionRequest1.into())?;
         reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID).map_err(|_| ReadError::InvalidOfflineMessageId)?;
         let protocol_version = reader.read_u8()?;
@@ -93,8 +93,8 @@ impl RakNetMessageRead for OpenConnectionRequest1Message {
     }
 }
 
-impl RakNetMessageWrite for OpenConnectionRequest1Message {
-    fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<()> {
+impl OfflineMessageWrite for OpenConnectionRequest1Message {
+    fn write_message(&self, writer: &mut dyn DataWrite) -> Result<()> {
         writer.write_u8(MessageId::OpenConnectionRequest1.into())?;
         writer.write_bytes(&OFFLINE_MESSAGE_ID)?;
         writer.write_u8(self.protocol_version)?;
@@ -119,8 +119,8 @@ impl OpenConnectionReply1Message {
     }
 }
 
-impl RakNetMessageRead for OpenConnectionReply1Message {
-    fn read_message(reader: &mut dyn RakNetRead) -> Result<Self> {
+impl OfflineMessageRead for OpenConnectionReply1Message {
+    fn read_message(reader: &mut dyn DataRead) -> Result<Self> {
         reader.read_u8_and_compare(MessageId::OpenConnectionReply1.into())?;
         reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID).map_err(|_| ReadError::InvalidOfflineMessageId)?;
         let guid = reader.read_u64_be()?;
@@ -143,8 +143,8 @@ impl RakNetMessageRead for OpenConnectionReply1Message {
     }
 }
 
-impl RakNetMessageWrite for OpenConnectionReply1Message {
-    fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<()> {
+impl OfflineMessageWrite for OpenConnectionReply1Message {
+    fn write_message(&self, writer: &mut dyn DataWrite) -> Result<()> {
         writer.write_u8(MessageId::OpenConnectionReply1.into())?;
         writer.write_bytes(&OFFLINE_MESSAGE_ID)?;
         writer.write_u64_be(self.guid)?;
@@ -167,8 +167,8 @@ pub struct OpenConnectionRequest2Message {
     pub guid: u64,
 }
 
-impl RakNetMessageRead for OpenConnectionRequest2Message {
-    fn read_message(reader: &mut dyn RakNetRead) -> Result<Self> {
+impl OfflineMessageRead for OpenConnectionRequest2Message {
+    fn read_message(reader: &mut dyn DataRead) -> Result<Self> {
         reader.read_u8_and_compare(MessageId::OpenConnectionRequest2.into())?;
         reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID).map_err(|_| ReadError::InvalidOfflineMessageId)?;
         let binding_address = reader.read_socket_addr()?;
@@ -182,7 +182,7 @@ impl RakNetMessageRead for OpenConnectionRequest2Message {
         })
     }
 
-    fn read_message_with_security(reader: &mut dyn RakNetRead) -> Result<Self> {
+    fn read_message_with_security(reader: &mut dyn DataRead) -> Result<Self> {
         reader.read_u8_and_compare(MessageId::OpenConnectionRequest2.into())?;
         reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID).map_err(|_| ReadError::InvalidOfflineMessageId)?;
         let cookie = reader.read_u32_be()?;
@@ -206,8 +206,8 @@ impl RakNetMessageRead for OpenConnectionRequest2Message {
     }    
 }
 
-impl RakNetMessageWrite for OpenConnectionRequest2Message {
-    fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<()> {
+impl OfflineMessageWrite for OpenConnectionRequest2Message {
+    fn write_message(&self, writer: &mut dyn DataWrite) -> Result<()> {
         writer.write_u8(MessageId::OpenConnectionRequest2.into())?;
         writer.write_bytes(&OFFLINE_MESSAGE_ID)?;
         if let Some((cookie, challenge)) = &self.cookie_and_challenge {
@@ -244,8 +244,8 @@ impl OpenConnectionReply2Message {
     }
 }
 
-impl RakNetMessageRead for OpenConnectionReply2Message {
-    fn read_message(reader: &mut dyn RakNetRead) -> Result<Self> {
+impl OfflineMessageRead for OpenConnectionReply2Message {
+    fn read_message(reader: &mut dyn DataRead) -> Result<Self> {
         reader.read_u8_and_compare(MessageId::OpenConnectionReply2.into())?;
         reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID).map_err(|_| ReadError::InvalidOfflineMessageId)?;
         let guid = reader.read_u64_be()?;
@@ -269,8 +269,8 @@ impl RakNetMessageRead for OpenConnectionReply2Message {
     }
 }
 
-impl RakNetMessageWrite for OpenConnectionReply2Message {
-    fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<()> {
+impl OfflineMessageWrite for OpenConnectionReply2Message {
+    fn write_message(&self, writer: &mut dyn DataWrite) -> Result<()> {
         writer.write_u8(MessageId::OpenConnectionReply2.into())?;
         writer.write_bytes(&OFFLINE_MESSAGE_ID)?;
         writer.write_u64_be(self.guid)?;
@@ -300,8 +300,8 @@ impl IncompatibleProtocolVersionMessage {
     }
 }
 
-impl RakNetMessageRead for IncompatibleProtocolVersionMessage {
-    fn read_message(reader: &mut dyn RakNetRead) -> Result<Self> {
+impl OfflineMessageRead for IncompatibleProtocolVersionMessage {
+    fn read_message(reader: &mut dyn DataRead) -> Result<Self> {
         reader.read_u8_and_compare(MessageId::IncompatibleProtocolVersion.into())?;
         let protocol_version = reader.read_u8()?;
         reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID).map_err(|_| ReadError::InvalidOfflineMessageId)?;
@@ -310,8 +310,8 @@ impl RakNetMessageRead for IncompatibleProtocolVersionMessage {
     }
 }
 
-impl RakNetMessageWrite for IncompatibleProtocolVersionMessage {
-    fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<()> {
+impl OfflineMessageWrite for IncompatibleProtocolVersionMessage {
+    fn write_message(&self, writer: &mut dyn DataWrite) -> Result<()> {
         writer.write_u8(MessageId::IncompatibleProtocolVersion.into())?;
         writer.write_u8(self.protocol_version)?;
         writer.write_bytes(&OFFLINE_MESSAGE_ID)?;
@@ -337,8 +337,8 @@ impl ConnectErrorMessage {
     }
 }
 
-impl RakNetMessageRead for ConnectErrorMessage {
-    fn read_message(reader: &mut dyn RakNetRead) -> Result<Self> {
+impl OfflineMessageRead for ConnectErrorMessage {
+    fn read_message(reader: &mut dyn DataRead) -> Result<Self> {
         let message_id_byte = reader.read_u8()?;
         let message_id = match MessageId::try_from(message_id_byte) {
             Ok(MessageId::NoFreeIncomingConnections) => MessageId::NoFreeIncomingConnections,
@@ -353,8 +353,8 @@ impl RakNetMessageRead for ConnectErrorMessage {
     }
 }
 
-impl RakNetMessageWrite for ConnectErrorMessage {
-    fn write_message(&self, writer: &mut dyn RakNetWrite) -> Result<()> {
+impl OfflineMessageWrite for ConnectErrorMessage {
+    fn write_message(&self, writer: &mut dyn DataWrite) -> Result<()> {
         writer.write_u8(self.message_id.into())?;
         writer.write_bytes(&OFFLINE_MESSAGE_ID)?;
         writer.write_u64_be(self.guid)?;
@@ -364,10 +364,7 @@ impl RakNetMessageWrite for ConnectErrorMessage {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        io::Cursor,
-        net::SocketAddr,
-    };
+    use std::net::SocketAddr;
 
     use crate::{
         error::{Error, ReadError},
@@ -382,8 +379,8 @@ mod tests {
             OpenConnectionRequest1Message,
             OpenConnectionRequest2Message,
         },
-        reader::RakNetMessageRead,
-        writer::RakNetMessageWrite,
+        reader::{OfflineMessageRead, DataReader},
+        writer::OfflineMessageWrite,
     };
 
     #[test]
@@ -395,7 +392,7 @@ mod tests {
             0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
             0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Client guid: 0x8877665544332211
         ];
-        let mut reader = Cursor::new(buf);
+        let mut reader = DataReader::new(&buf);
 
         // Act
         let ping = UnconnectedPingMessage::read_message(&mut reader).expect("Failed to read unconnected ping");
@@ -415,7 +412,7 @@ mod tests {
             0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // INVALID Offline message ID
             0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Client guid: 0x8877665544332211
         ];
-        let mut reader = Cursor::new(buf);
+        let mut reader = DataReader::new(&buf);
 
         // Act
         let result = UnconnectedPingMessage::read_message(&mut reader);
@@ -460,7 +457,7 @@ mod tests {
             0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
             0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Client guid: 0x8877665544332211
         ];
-        let mut reader = Cursor::new(buf);
+        let mut reader = DataReader::new(&buf);
 
         // Act
         let ping = UnconnectedPingMessage::read_message(&mut reader).expect("Failed to read unconnected ping");
@@ -504,7 +501,7 @@ mod tests {
             0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
             0x98, 0x76, 0x54, 0x32, // Data
         ];
-        let mut reader = Cursor::new(buf);
+        let mut reader = DataReader::new(&buf);
 
         // Act
         let pong = UnconnectedPongMessage::read_message(&mut reader).expect("Failed to read unconnected pong");
@@ -525,7 +522,7 @@ mod tests {
             0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
             // Empty data
         ];
-        let mut reader = Cursor::new(buf);
+        let mut reader = DataReader::new(&buf);
 
         // Act
         let pong = UnconnectedPongMessage::read_message(&mut reader).expect("Failed to read unconnected pong");
@@ -546,7 +543,7 @@ mod tests {
             0xAA, 0xAA, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // INVALID Offline message ID
             0x98, 0x76, 0x54, 0x32, // Data
         ];
-        let mut reader = Cursor::new(buf);
+        let mut reader = DataReader::new(&buf);
 
         // Act
         let result = UnconnectedPongMessage::read_message(&mut reader);
@@ -616,7 +613,7 @@ mod tests {
             0x12, // RakNet protocol version: 0x12
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Zero padding: 8 bytes
         ];
-        let mut reader = Cursor::new(buf);
+        let mut reader = DataReader::new(&buf);
 
         // Act
         let req1 = OpenConnectionRequest1Message::read_message(&mut reader).expect("Failed to read Open Connection Request 1");
@@ -635,7 +632,7 @@ mod tests {
             0x12, // RakNet protocol version: 0x12
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Zero padding: 8 bytes
         ];
-        let mut reader = Cursor::new(buf);
+        let mut reader = DataReader::new(&buf);
 
         // Act
         let result = OpenConnectionRequest1Message::read_message(&mut reader);
@@ -680,7 +677,7 @@ mod tests {
             0x00, // Use security: false = 0x00
             0x01, 0x23, // MTU: 0x0123
         ];
-        let mut reader = Cursor::new(buf);
+        let mut reader = DataReader::new(&buf);
 
         // Act
         let reply1 = OpenConnectionReply1Message::read_message(&mut reader).expect("Failed to read message");
@@ -704,7 +701,7 @@ mod tests {
             1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4,
             0x01, 0x23, // MTU size: 0x0123
         ];
-        let mut reader = Cursor::new(buf);
+        let mut reader = DataReader::new(&buf);
 
         // Act
         let reply1 = OpenConnectionReply1Message::read_message(&mut reader).expect("Failed to read message");
@@ -783,7 +780,7 @@ mod tests {
             0x01, 0x23, // MTU: 0x123
             0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0, // GUID: 0x123456789ABCDEF0
         ];
-        let mut reader = Cursor::new(buf);
+        let mut reader = DataReader::new(&buf);
 
         // Act
         let req2 = OpenConnectionRequest2Message::read_message(&mut reader).expect("Failed to read message");
@@ -806,7 +803,7 @@ mod tests {
             0x01, 0x23, // MTU: 0x123
             0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0, // GUID: 0x123456789ABCDEF0
         ];
-        let mut reader = Cursor::new(buf);
+        let mut reader = DataReader::new(&buf);
 
         // Act
         let req2 = OpenConnectionRequest2Message::read_message_with_security(&mut reader).expect("Failed to read message");
@@ -834,7 +831,7 @@ mod tests {
             0x01, 0x23, // MTU: 0x123
             0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0, // GUID: 0x123456789ABCDEF0
         ];
-        let mut reader = Cursor::new(buf);
+        let mut reader = DataReader::new(&buf);
 
         // Act
         let req2 = OpenConnectionRequest2Message::read_message_with_security(&mut reader).expect("Failed to read message");
@@ -863,7 +860,7 @@ mod tests {
             0x01, 0x23, // MTU: 0x0123
             0x00, // Use security: false = 0x00
         ];
-        let mut reader = Cursor::new(buf);
+        let mut reader = DataReader::new(&buf);
 
         // Act
         let reply2 = OpenConnectionReply2Message::read_message(&mut reader).expect("Failed to read message");
@@ -894,7 +891,7 @@ mod tests {
             0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6A, 0x6B, 0x6C, 0x6D, 0x6E, 0x6F,
             0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x7B, 0x7C, 0x7D, 0x7E, 0x7F,
         ];
-        let mut reader = Cursor::new(buf);
+        let mut reader = DataReader::new(&buf);
 
         // Act
         let reply2 = OpenConnectionReply2Message::read_message(&mut reader).expect("Failed to read message");
@@ -993,7 +990,7 @@ mod tests {
             0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
             0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Guid: 0x8877665544332211
         ];
-        let mut reader = Cursor::new(buf);
+        let mut reader = DataReader::new(&buf);
 
         // Act
         let message = IncompatibleProtocolVersionMessage::read_message(&mut reader).expect("Failed to message");
@@ -1012,7 +1009,7 @@ mod tests {
             0xAA, 0xAA, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
             0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Guid: 0x8877665544332211
         ];
-        let mut reader = Cursor::new(buf);
+        let mut reader = DataReader::new(&buf);
 
         // Act
         let result = IncompatibleProtocolVersionMessage::read_message(&mut reader);
@@ -1055,7 +1052,7 @@ mod tests {
             0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
             0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Guid: 0x8877665544332211
         ];
-        let mut reader = Cursor::new(buf);
+        let mut reader = DataReader::new(&buf);
 
         // Act
         let message = ConnectErrorMessage::read_message(&mut reader).expect("Failed to message");
@@ -1094,7 +1091,7 @@ mod tests {
             0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
             0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Guid: 0x8877665544332211
         ];
-        let mut reader = Cursor::new(buf);
+        let mut reader = DataReader::new(&buf);
 
         // Act
         let message = ConnectErrorMessage::read_message(&mut reader).expect("Failed to message");
@@ -1133,7 +1130,7 @@ mod tests {
             0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
             0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Guid: 0x8877665544332211
         ];
-        let mut reader = Cursor::new(buf);
+        let mut reader = DataReader::new(&buf);
 
         // Act
         let message = ConnectErrorMessage::read_message(&mut reader).expect("Failed to message");
@@ -1172,7 +1169,7 @@ mod tests {
             0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78, // Offline message ID
             0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, // Guid: 0x8877665544332211
         ];
-        let mut reader = Cursor::new(buf);
+        let mut reader = DataReader::new(&buf);
 
         // Act
         let message = ConnectErrorMessage::read_message(&mut reader).expect("Failed to message");

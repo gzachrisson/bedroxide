@@ -50,7 +50,7 @@ impl<T: DatagramSocket> ConnectionManager<T> {
                     debug!("Received {} bytes from {}: {}", payload.len(), addr, utils::to_hex(&payload, 40));
                     if !self.offline_packet_handler.process_offline_packet(time, addr, payload, communicator, &mut self.connections) {
                         if let Some(conn) = self.connections.get_mut(&addr) {
-                            conn.process_incoming_packet(payload, time, communicator);
+                            conn.process_incoming_datagram(payload, time, communicator);
                         }
                     }
                 },
@@ -70,11 +70,7 @@ impl<T: DatagramSocket> ConnectionManager<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        io::Cursor,
-        net::SocketAddr,
-        time::Instant,
-    };   
+    use std::{net::SocketAddr, time::Instant};   
     use crossbeam_channel::{Sender, Receiver};
     use crate::{
         config::Config,
@@ -90,9 +86,9 @@ mod tests {
             UnconnectedPingMessage,
             UnconnectedPongMessage,
         },
-        reader::RakNetMessageRead,
+        reader::{OfflineMessageRead, DataReader},
         socket::FakeDatagramSocket,
-        writer::RakNetMessageWrite,
+        writer::OfflineMessageWrite,
     };
 
     const OWN_GUID: u64 = 0xFEDCBA9876453210;
@@ -107,15 +103,15 @@ mod tests {
         (ConnectionManager::new(fake_socket, config), datagram_sender, datagram_receiver, remote_addr)
     }
 
-    fn send_datagram<M: RakNetMessageWrite>(message: M, datagram_sender: &mut Sender<(Vec<u8>, SocketAddr)>, remote_addr: SocketAddr) {
+    fn send_datagram<M: OfflineMessageWrite>(message: M, datagram_sender: &mut Sender<(Vec<u8>, SocketAddr)>, remote_addr: SocketAddr) {
         let mut buf = Vec::new();
         message.write_message(&mut buf).expect("Could not create message");
         datagram_sender.send((buf, remote_addr)).expect("Could not send datagram");
     }
 
-    fn receive_datagram<M: RakNetMessageRead>(datagram_receiver: &mut Receiver<(Vec<u8>, SocketAddr)>) -> (M, SocketAddr) {
+    fn receive_datagram<M: OfflineMessageRead>(datagram_receiver: &mut Receiver<(Vec<u8>, SocketAddr)>) -> (M, SocketAddr) {
         let (payload, addr) = datagram_receiver.try_recv().expect("Datagram not received");
-        let mut reader = Cursor::new(payload);
+        let mut reader = DataReader::new(&payload);
         let message = M::read_message(&mut reader).expect("Could not parse message");
         (message, addr)
     }

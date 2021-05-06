@@ -1,5 +1,9 @@
 use std::{cmp::Ordering, convert::TryFrom, fmt::Display, hash::{Hash, Hasher}, ops::{Add, Div, Mul, Sub}};
 
+pub type MessageNumber = u24;
+pub type SequencingIndex = u24;
+pub type OrderingIndex = u24;
+pub type OrderingChannelIndex = u8;
 pub type DatagramSequenceNumber = u24;
 
 #[allow(non_camel_case_types)]

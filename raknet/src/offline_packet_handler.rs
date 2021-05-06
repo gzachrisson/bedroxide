@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
     convert::TryFrom,
-    io::Cursor,
     net::SocketAddr,
     time::Instant,
 };
@@ -24,10 +23,10 @@ use crate::{
         UnconnectedPingMessage,
         UnconnectedPongMessage,
     },
-    reader::RakNetMessageRead,
+    reader::{OfflineMessageRead, DataReader},
     socket::DatagramSocket,
     utils,
-    writer::RakNetMessageWrite,
+    writer::OfflineMessageWrite,
 };
 
 pub struct  OfflinePacketHandler {   
@@ -81,7 +80,7 @@ impl OfflinePacketHandler {
     }
 
     fn handle_unconnected_ping(&self, addr: SocketAddr, payload: &[u8], communicator: &mut Communicator<impl DatagramSocket>) {
-        let mut reader = Cursor::new(payload);
+        let mut reader = DataReader::new(payload);
         match UnconnectedPingMessage::read_message(&mut reader) {
             Ok(ping) => {
                 debug!("Received Unconnected Ping: time={}, client_guid={}", ping.time, ping.client_guid);
@@ -100,7 +99,7 @@ impl OfflinePacketHandler {
     }
 
     fn handle_unconnected_pong(&self, _addr: SocketAddr, payload: &[u8], _communicator: &mut Communicator<impl DatagramSocket>) {
-        let mut reader = Cursor::new(payload);
+        let mut reader = DataReader::new(payload);
         match UnconnectedPongMessage::read_message(&mut reader) {
             Ok(pong) => {
                 debug!("Received Unconnected Pong: time={}, guid={}, data={:?}", pong.time, pong.guid, utils::to_hex(&pong.data, 40));
@@ -111,7 +110,7 @@ impl OfflinePacketHandler {
     }
 
     fn handle_open_connection_request1(&self, addr: SocketAddr, payload: &[u8], communicator: &mut Communicator<impl DatagramSocket>) {
-        let mut reader = Cursor::new(payload);
+        let mut reader = DataReader::new(payload);
         match OpenConnectionRequest1Message::read_message(&mut reader) {
             Ok(request1) => {
                 debug!("Received Open Connection Request 1: protocol_version={}, padding_length={}", request1.protocol_version, request1.padding_length);
@@ -133,7 +132,7 @@ impl OfflinePacketHandler {
     }
 
     fn handle_open_connection_request2(&self, time: Instant, addr: SocketAddr, payload: &[u8], communicator: &mut Communicator<impl DatagramSocket>, connections: &mut HashMap<SocketAddr, Connection>) {
-        let mut reader = Cursor::new(payload);
+        let mut reader = DataReader::new(payload);
         match OpenConnectionRequest2Message::read_message(&mut reader) {
             Ok(request2) => {
                 debug!("Received Open Connection Request 2: mtu={} guid={} binding_address={:?}", request2.mtu, request2.guid, request2.binding_address);        
@@ -208,7 +207,7 @@ impl OfflinePacketHandler {
         number_of_incoming_connections < config.max_incoming_connections
     }
 
-    fn send_message(message: &dyn RakNetMessageWrite, dest: SocketAddr, communicator: &mut Communicator<impl DatagramSocket>) {
+    fn send_message(message: &dyn OfflineMessageWrite, dest: SocketAddr, communicator: &mut Communicator<impl DatagramSocket>) {
         let mut payload = Vec::new();
         match message.write_message(&mut payload) {
             Ok(()) => {
@@ -224,7 +223,7 @@ impl OfflinePacketHandler {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, io::Cursor, net::SocketAddr, time::Instant};
+    use std::{collections::HashMap, net::SocketAddr, time::Instant};
     use crossbeam_channel::Receiver;
 
     use crate::{        
@@ -234,9 +233,9 @@ mod tests {
         message_ids::MessageId,
         messages::{ConnectErrorMessage, OpenConnectionRequest2Message, OpenConnectionReply2Message},
         offline_packet_handler::OfflinePacketHandler,
-        reader::RakNetMessageRead,
+        reader::{OfflineMessageRead, DataReader},
         socket::FakeDatagramSocket,
-        writer::RakNetMessageWrite,
+        writer::OfflineMessageWrite,
     };
 
     const OWN_GUID: u64 = 0xFEDCBA9876453210;
@@ -258,9 +257,9 @@ mod tests {
         (OfflinePacketHandler::new(), communicator, connections, datagram_receiver, remote_addr, own_addr)
     }    
 
-    fn receive_datagram<M: RakNetMessageRead>(datagram_receiver: &mut Receiver<(Vec<u8>, SocketAddr)>) -> (M, SocketAddr) {
+    fn receive_datagram<M: OfflineMessageRead>(datagram_receiver: &mut Receiver<(Vec<u8>, SocketAddr)>) -> (M, SocketAddr) {
         let (payload, addr) = datagram_receiver.try_recv().expect("Datagram not received");
-        let mut reader = Cursor::new(payload);
+        let mut reader = DataReader::new(&payload);
         let message = M::read_message(&mut reader).expect("Could not parse message");
         (message, addr)
     }

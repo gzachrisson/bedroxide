@@ -1,6 +1,6 @@
 use std::option::Option;
 
-use crate::{RakNetRead, RakNetWrite, ReadError, Result, DatagramSequenceNumber, u24};
+use crate::{DataRead, DataWrite, ReadError, Result, DatagramSequenceNumber, u24};
 
 #[derive(Debug, PartialEq)]
 pub enum DatagramHeader {    
@@ -10,7 +10,7 @@ pub enum DatagramHeader {
 }
 
 impl DatagramHeader {
-    pub fn read(reader: &mut impl RakNetRead) -> Result<Self> {
+    pub fn read(reader: &mut impl DataRead) -> Result<Self> {
         let bitflags = reader.read_u8()?;
         let is_valid = (bitflags & (1 << 7)) != 0;
         if !is_valid { return Err(ReadError::InvalidHeader.into()); }
@@ -39,7 +39,7 @@ impl DatagramHeader {
     }
 
     #[allow(dead_code)]
-    pub fn write(&self, writer: &mut dyn RakNetWrite) -> Result<()> {
+    pub fn write(&self, writer: &mut dyn DataWrite) -> Result<()> {
         // Bit 7 = "isValid"
         let mut bitflags: u8 = 1 << 7;
         match self {
@@ -74,15 +74,15 @@ impl DatagramHeader {
 
 #[cfg(test)]
 mod tests {
-    use std::{convert::TryFrom, io::Cursor, matches};
+    use std::{convert::TryFrom, matches};
     
-    use crate::{datagram_header::DatagramHeader, DatagramSequenceNumber};
+    use crate::{datagram_header::DatagramHeader, DatagramSequenceNumber, reader::DataReader};
 
     #[test]
     fn read_ack_header_with_data_arrival_rate() {
         // Arrange
         let payload = [0b1110_0000u8, 0x40, 0xa0, 0x00, 0x00];
-        let mut reader = Cursor::new(payload);
+        let mut reader = DataReader::new(&payload);
 
         // Act
         let header = DatagramHeader::read(&mut reader).expect("Couldn't read header");
@@ -95,7 +95,7 @@ mod tests {
     fn read_ack_header_without_data_arrival_rate() {
         // Arrange
         let payload = [0b1100_0000u8];
-        let mut reader = Cursor::new(payload);
+        let mut reader = DataReader::new(&payload);
 
         // Act
         let header = DatagramHeader::read(&mut reader).expect("Couldn't read header");
@@ -108,7 +108,7 @@ mod tests {
     fn read_nack_header() {
         // Arrange
         let payload = [0b1010_0000u8];
-        let mut reader = Cursor::new(payload);
+        let mut reader = DataReader::new(&payload);
 
         // Act
         let header = DatagramHeader::read(&mut reader).expect("Couldn't read header");
@@ -121,7 +121,7 @@ mod tests {
     fn read_packet_header() {
         // Arrange
         let payload = [0b1000_0000u8, 0x56, 0x34, 0x12];
-        let mut reader = Cursor::new(payload);
+        let mut reader = DataReader::new(&payload);
 
         // Act
         let header = DatagramHeader::read(&mut reader).expect("Couldn't read header");
@@ -136,7 +136,7 @@ mod tests {
     fn read_packet_header_packet_pair() {
         // Arrange
         let payload = [0b1001_0000u8, 0x56, 0x34, 0x12];
-        let mut reader = Cursor::new(payload);
+        let mut reader = DataReader::new(&payload);
 
         // Act
         let header = DatagramHeader::read(&mut reader).expect("Couldn't read header");
@@ -151,7 +151,7 @@ mod tests {
     fn read_packet_header_continuous_send() {
         // Arrange
         let payload = [0b1000_1000u8, 0x56, 0x34, 0x12];
-        let mut reader = Cursor::new(payload);
+        let mut reader = DataReader::new(&payload);
 
         // Act
         let header = DatagramHeader::read(&mut reader).expect("Couldn't read header");
@@ -166,7 +166,7 @@ mod tests {
     fn read_packet_header_needs_data_arrival_rate() {
         // Arrange
         let payload = [0b1000_0100u8, 0x56, 0x34, 0x12];
-        let mut reader = Cursor::new(payload);
+        let mut reader = DataReader::new(&payload);
 
         // Act
         let header = DatagramHeader::read(&mut reader).expect("Couldn't read header");

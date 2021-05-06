@@ -1,7 +1,7 @@
 use std::{io, fs::File, net::SocketAddr, thread};
 use simplelog::{SimpleLogger, WriteLogger, LevelFilter, Config, CombinedLogger};
 use log::{info, error};
-use raknet::{RakNetPeer, Command, RakNetWrite};
+use raknet::{RakNetPeer, Command, DataWrite};
 
 use crate::error::Result;
 

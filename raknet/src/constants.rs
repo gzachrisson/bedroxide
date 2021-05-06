@@ -5,3 +5,5 @@ pub const RAKNET_PROTOCOL_VERSION: u8 = 10;
 pub const UDP_HEADER_SIZE:u16 = 28;
 
 pub const MAXIMUM_MTU_SIZE:u16 = 1492;
+
+pub const NUMBER_OF_ORDERING_CHANNELS:u8 = 32;

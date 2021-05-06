@@ -1,14 +1,12 @@
-use std::{
-    io::Read,
-    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV6},
-};
+use std::{io::{Cursor, Read}, net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV6}, usize};
 
 use crate::{error::{Error, ReadError, Result}, number::u24};
 
-pub trait RakNetRead {
+pub trait DataRead {
     fn read_u8(&mut self) -> Result<u8>;
     fn read_u8_and_compare(&mut self, data: u8) -> Result<()>;
     fn read_bytes(&mut self, buf: &mut [u8]) -> Result<()>;
+    fn read_bytes_to_boxed_slice(&mut self, length: usize) -> Result<Box<[u8]>>;
     fn read_bytes_to_end(&mut self, buf: &mut Vec<u8>) -> Result<()>;
     fn read_bytes_and_compare(&mut self, data: &[u8]) -> Result<()>;
     fn read_u16(&mut self) -> Result<u16>;
@@ -21,19 +19,31 @@ pub trait RakNetRead {
     fn read_fixed_string(&mut self) -> Result<String>;
     fn read_zero_padding(&mut self) -> Result<u16>;
     fn read_socket_addr(&mut self) -> Result<SocketAddr>;
+    fn has_more(&self) -> bool;
 }
 
-impl<T> RakNetRead for T where T: Read {
+pub struct DataReader<'a> {
+    cursor: Cursor<&'a [u8]>,
+}
+
+impl<'a> DataReader<'a> {
+    pub fn new(data: &'a [u8]) -> DataReader<'a> {
+        DataReader {
+            cursor: Cursor::new(data),
+        }
+    }
+}
+
+impl<'a> DataRead for DataReader<'a> {
     fn read_u8(&mut self) -> Result<u8> {
         let mut buf = [0u8; 1];
-        self.read_exact(&mut buf)?;
+        self.cursor.read_exact(&mut buf)?;
         Ok(u8::from_le_bytes(buf))
     }
 
     fn read_u8_and_compare(&mut self, data: u8) -> Result<()> {
-        let mut buf = [0u8; 1];
-        self.read_exact(&mut buf)?;
-        if buf[0] == data {
+        let byte = self.read_u8()?;
+        if byte == data {
             Ok(())
         } else {
             Err(Error::ReadError(ReadError::CompareFailed))
@@ -41,18 +51,27 @@ impl<T> RakNetRead for T where T: Read {
     }
 
     fn read_bytes(&mut self, buf: &mut [u8]) -> Result<()> {
-        self.read_exact(buf)?;
+        self.cursor.read_exact(buf)?;
         Ok(())
     }
 
+    fn read_bytes_to_boxed_slice(&mut self, length: usize) -> Result<Box<[u8]>> {
+        if length > self.cursor.get_ref().len() - self.cursor.position() as usize {
+            return Err(ReadError::NotAllBytesRead(self.cursor.get_ref().len() - self.cursor.position() as usize).into());
+        }
+        let boxed_slice = self.cursor.get_ref()[self.cursor.position() as usize..self.cursor.position() as usize + length].to_vec().into_boxed_slice();
+        self.cursor.set_position(self.cursor.position() + length as u64);
+        Ok(boxed_slice)
+    }
+
     fn read_bytes_to_end(&mut self, buf: &mut Vec<u8>) -> Result<()> {        
-        self.read_to_end(buf)?;
+        self.cursor.read_to_end(buf)?;
         Ok(())
     }
 
     fn read_bytes_and_compare(&mut self, data: &[u8]) -> Result<()> {
         let mut buf = vec![0u8; data.len()];
-        self.read_exact(&mut buf)?;
+        self.read_bytes(&mut buf)?;
         if buf == data {
             Ok(())
         } else {
@@ -62,50 +81,50 @@ impl<T> RakNetRead for T where T: Read {
 
     fn read_u16(&mut self) -> Result<u16> {
         let mut buf = [0u8; 2];
-        self.read_exact(&mut buf)?;
+        self.read_bytes(&mut buf)?;
         Ok(u16::from_le_bytes(buf))
     }
 
     fn read_u16_be(&mut self) -> Result<u16> {
         let mut buf = [0u8; 2];
-        self.read_exact(&mut buf)?;
+        self.read_bytes(&mut buf)?;
         Ok(u16::from_be_bytes(buf))
     }
 
     fn read_u24(&mut self) -> Result<u24> {
         let mut buf = [0u8; 3];
-        self.read_exact(&mut buf)?;
+        self.read_bytes(&mut buf)?;
         Ok(u24::from_le_bytes(buf))
     }
 
     fn read_u32(&mut self) -> Result<u32> {
         let mut buf = [0u8; 4];
-        self.read_exact(&mut buf)?;
+        self.read_bytes(&mut buf)?;
         Ok(u32::from_le_bytes(buf))
     }
 
     fn read_u32_be(&mut self) -> Result<u32> {
         let mut buf = [0u8; 4];
-        self.read_exact(&mut buf)?;
+        self.read_bytes(&mut buf)?;
         Ok(u32::from_be_bytes(buf))
     }
 
     fn read_u64_be(&mut self) -> Result<u64> {
         let mut buf = [0u8; 8];
-        self.read_exact(&mut buf)?;
+        self.read_bytes(&mut buf)?;
         Ok(u64::from_be_bytes(buf))
     }
 
     fn read_f32_be(&mut self) -> Result<f32> {
         let mut buf = [0u8; 4];
-        self.read_exact(&mut buf)?;
+        self.read_bytes(&mut buf)?;
         Ok(f32::from_be_bytes(buf))
     }
 
     fn read_fixed_string(&mut self) -> Result<String> {
         let length: usize = self.read_u16_be()?.into();
         let mut buf = vec![0u8; length];
-        self.read_exact(&mut buf)?;
+        self.read_bytes(&mut buf)?;
         Ok(String::from_utf8(buf)?)
     }
 
@@ -113,7 +132,7 @@ impl<T> RakNetRead for T where T: Read {
         let mut padding_length = 0u16;
         let mut buf = [0u8; 1];
         loop {
-            let n = self.read(&mut buf)?;
+            let n = self.cursor.read(&mut buf)?;
             if n == 0 {
                 break;
             }
@@ -126,12 +145,11 @@ impl<T> RakNetRead for T where T: Read {
     }
 
     fn read_socket_addr(&mut self) -> Result<SocketAddr> {
-        let mut ip_version = [0u8; 1];
-        self.read_exact(&mut ip_version)?;
-        match ip_version[0] {
+        let ip_version = self.read_u8()?;
+        match ip_version {
             0x04 => {
                 let mut ip = [0u8; 4];                
-                self.read_exact(&mut ip)?;
+                self.cursor.read_exact(&mut ip)?;
                 let port = self.read_u16_be()?;
                 Ok(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(!ip[0], !ip[1], !ip[2], !ip[3])), port))
             },
@@ -140,44 +158,45 @@ impl<T> RakNetRead for T where T: Read {
                 let port = self.read_u16_be()?;
                 let flowinfo = self.read_u32()?;
                 let mut ip = [0u8; 16];
-                self.read_exact(&mut ip)?;
+                self.cursor.read_exact(&mut ip)?;
                 let scope_id = self.read_u32()?;
                 Ok(SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::from(ip), port, flowinfo, scope_id)))
             },
             _ => Err(ReadError::InvalidIpVersion.into()),
         }
     }
+
+    fn has_more(&self) -> bool {
+        (self.cursor.position() as usize) < self.cursor.get_ref().len()
+    }
 }
 
-pub trait RakNetMessageRead: Sized {
+pub trait OfflineMessageRead: Sized {
     /// Reads a message including the message identifier.
     /// 
     /// This function assumes security is disabled on our peer, or
     /// that the security state can be determined from the message content.
-    fn read_message(reader: &mut dyn RakNetRead) -> Result<Self>;
+    fn read_message(reader: &mut dyn DataRead) -> Result<Self>;
 
     /// Reads a message including the message identifier assuming
     /// security is enabled on our peer.
     /// The default implementation if not overridden just calls `read_message()`.
-    fn read_message_with_security(reader: &mut dyn RakNetRead) -> Result<Self> {
+    fn read_message_with_security(reader: &mut dyn DataRead) -> Result<Self> {
         Self::read_message(reader)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        io::Cursor,
-        net::SocketAddr,        
-    };
-
-    use crate::RakNetRead;
+    use std::net::SocketAddr;
+    use crate::DataRead;
+    use super::DataReader;
 
     #[test]
     fn read_socket_addr_ipv4() {
         // Arrange
         let buf = vec![0x04u8, !192, !168, !1, !248, 0x12, 0x34];
-        let mut reader = Cursor::new(buf);
+        let mut reader = DataReader::new(&buf);
         
         // Act
         let socket_addr = reader.read_socket_addr().expect("Could not read SocketAddr");
@@ -197,7 +216,7 @@ mod tests {
             0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0xe0, 0x05, 0x63, 0xd8, 0x39, 0x49, // sin6_addr: fe80::8:e005:63d8:3949
             0x44, 0x33, 0x22, 0x11, // sin6_scope_id (little endian): 0x11223344
             ];
-        let mut reader = Cursor::new(buf);
+        let mut reader = DataReader::new(&buf);
         
         // Act
         let socket_addr = reader.read_socket_addr().expect("Could not read SocketAddr");

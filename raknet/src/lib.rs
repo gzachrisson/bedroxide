@@ -5,8 +5,8 @@ pub use self::{
     error::{Error, Result, ReadError, WriteError},
     number::{DatagramSequenceNumber, u24},
     peer::{RakNetPeer, Command},
-    reader::RakNetRead,
-    writer::RakNetWrite,
+    reader::DataRead,
+    writer::DataWrite,
 };
 
 mod communicator;
@@ -16,6 +16,8 @@ mod connection_manager;
 mod constants;
 mod datagram_header;
 mod error;
+mod split_packet_handler;
+mod internal_packet;
 mod message_ids;
 mod messages;
 mod number;
