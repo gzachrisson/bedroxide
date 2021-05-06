@@ -118,6 +118,22 @@ impl TryFrom<u32> for u24 {
     }
 }
 
+impl TryFrom<i32> for u24 {
+    type Error = TryFromIntError;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        if let Ok(u32_value) = u32::try_from(value) {
+            if (u32_value & 0xFF000000u32) == 0u32 {
+                Ok(u24(u32_value))
+            } else {
+                Err(TryFromIntError(()))
+            }
+        } else {
+            Err(TryFromIntError(()))
+        }
+    }
+}
+
 impl From<&u24> for u24 {
     fn from(other: &u24) -> Self {
         u24(other.0)

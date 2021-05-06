@@ -35,9 +35,6 @@ impl SplitPacketHeader {
             split_packet_id: reader.read_u16_be()?,
             split_packet_index: reader.read_u32_be()?,
         };
-        if header.split_packet_index >= header.split_packet_index {
-            return Err(ReadError::InvalidHeader.into());
-        }
         Ok(header)
     }
 
@@ -115,7 +112,7 @@ impl InternalPacket {
             },
             _ => return Err(ReadError::InvalidHeader.into()),
         };
-        let has_split_packet = (flags & 0b0001_0000) != 0;
+        let has_split_packet = (flags & 0b000_1_0000) != 0;
         let split_packet_header = if has_split_packet {
             Some(SplitPacketHeader::read(reader)?)
         } else {
@@ -155,15 +152,15 @@ impl InternalPacket {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Instant;
-    use crate::reader::DataReader;
+    use std::{convert::TryFrom, time::Instant};
+    use crate::{number::{MessageNumber, OrderingIndex, SequencingIndex}, reader::DataReader};
     use super::{InternalPacket, Ordering, Reliability};
 
     #[test]
     fn read_unreliable_packet() {
         // Arrange
         let buf = [
-            0x00, // Bitflags: bit 7-5: reliability=0=Unreliable, bit 4: has_split_packet=0=false
+            0b000_0_0000, // Bitflags: bit 7-5: reliability=0=Unreliable, bit 4: has_split_packet=0=false
             0x00, 0x10, // Data bit length: 0x0010=16 bits=2 bytes
             0x12, 0x34, // Data [0x12, 0x34]
         ];
@@ -178,4 +175,271 @@ mod tests {
         assert!(matches!(packet.split_packet_header(), None));
         assert_eq!(packet.payload(), &[0x12, 0x34]);
     }
+
+    #[test]
+    fn read_unreliable_split_packet() {
+        // Arrange
+        let buf = [
+            0b000_1_0000, // Bitflags: bit 7-5: reliability=0=Unreliable, bit 4: has_split_packet=1=true
+            0x00, 0x10, // Data bit length: 0x0010=16 bits=2 bytes
+            0x11, 0x22, 0x33, 0x44, // Split packet count: 0x11223344
+            0x13, 0x57, // Split packet ID: 0x1357
+            0x01, 0x23, 0x45, 0x67, // Split packet index: 0x01234567 
+            0x12, 0x34, // Data [0x12, 0x34]
+        ];
+        let mut reader = DataReader::new(&buf);
+
+        // Act
+        let packet = InternalPacket::read(Instant::now(), &mut reader).expect("Failed to read packet");
+
+        // Assert
+        assert!(matches!(packet.reliability(), Reliability::Unreliable));
+        assert!(matches!(packet.ordering(), Ordering::None));
+        assert!(matches!(packet.split_packet_header(), Some(header)
+            if header.split_packet_count() == 0x11223344 &&
+                header.split_packet_id() == 0x1357 &&
+                header.split_packet_index() == 0x01234567
+        ));
+        assert_eq!(packet.payload(), &[0x12, 0x34]);
+    }
+
+    #[test]
+    fn read_unreliable_sequenced_packet() {
+        // Arrange
+        let buf = [
+            0b001_0_0000, // Bitflags: bit 7-5: reliability=1=Unreliable Sequenced, bit 4: has_split_packet=0=false
+            0x00, 0x10, // Data bit length: 0x0010=16 bits=2 bytes
+            0x56, 0x34, 0x12, // Sequencing index: 0x123456
+            0x33, 0x22, 0x11, // Ordering index: 0x112233
+            0x05, // Ordering channel: 5
+            0x12, 0x34, // Data [0x12, 0x34]
+        ];
+        let mut reader = DataReader::new(&buf);
+
+        // Act
+        let packet = InternalPacket::read(Instant::now(), &mut reader).expect("Failed to read packet");
+
+        // Assert
+        assert!(matches!(packet.reliability(), Reliability::Unreliable));
+        assert!(matches!(packet.ordering(), Ordering::Sequenced {
+            sequencing_index,
+            ordering_index,
+            ordering_channel_index: 0x05
+        } if sequencing_index == SequencingIndex::try_from(0x123456).unwrap() &&
+            ordering_index == OrderingIndex::try_from(0x112233).unwrap()
+        ));
+        assert!(matches!(packet.split_packet_header(), None));
+        assert_eq!(packet.payload(), &[0x12, 0x34]);
+    }    
+
+    #[test]
+    fn read_unreliable_sequenced_split_packet() {
+        // Arrange
+        let buf = [
+            0b001_1_0000, // Bitflags: bit 7-5: reliability=1=Unreliable Sequenced, bit 4: has_split_packet=1=true
+            0x00, 0x10, // Data bit length: 0x0010=16 bits=2 bytes
+            0x56, 0x34, 0x12, // Sequencing index: 0x123456
+            0x33, 0x22, 0x11, // Ordering index: 0x112233
+            0x05, // Ordering channel: 5
+            0x11, 0x22, 0x33, 0x44, // Split packet count: 0x11223344
+            0x13, 0x57, // Split packet ID: 0x1357
+            0x01, 0x23, 0x45, 0x67, // Split packet index: 0x01234567 
+            0x12, 0x34, // Data [0x12, 0x34]
+        ];
+        let mut reader = DataReader::new(&buf);
+
+        // Act
+        let packet = InternalPacket::read(Instant::now(), &mut reader).expect("Failed to read packet");
+
+        // Assert
+        assert!(matches!(packet.reliability(), Reliability::Unreliable));
+        assert!(matches!(packet.ordering(), Ordering::Sequenced {
+            sequencing_index,
+            ordering_index,
+            ordering_channel_index: 0x05
+        } if sequencing_index == SequencingIndex::try_from(0x123456).unwrap() &&
+            ordering_index == OrderingIndex::try_from(0x112233).unwrap()
+        ));
+        assert!(matches!(packet.split_packet_header(), Some(header)
+            if header.split_packet_count() == 0x11223344 &&
+                header.split_packet_id() == 0x1357 &&
+                header.split_packet_index() == 0x01234567
+        ));
+        assert_eq!(packet.payload(), &[0x12, 0x34]);
+    }    
+
+    #[test]
+    fn read_reliable_packet() {
+        // Arrange
+        let buf = [
+            0b010_0_0000, // Bitflags: bit 7-5: reliability=2=Reliable, bit 4: has_split_packet=0=false
+            0x00, 0x10, // Data bit length: 0x0010=16 bits=2 bytes
+            0x56, 0x34, 0x12, // Reliable message number: 0x123456
+            0x12, 0x34, // Data [0x12, 0x34]
+        ];
+        let mut reader = DataReader::new(&buf);
+
+        // Act
+        let packet = InternalPacket::read(Instant::now(), &mut reader).expect("Failed to read packet");
+
+        // Assert
+        assert!(matches!(packet.reliability(), Reliability::Reliable(message_number) if message_number == MessageNumber::try_from(0x123456).unwrap()));
+        assert!(matches!(packet.ordering(), Ordering::None));
+        assert!(matches!(packet.split_packet_header(), None));
+        assert_eq!(packet.payload(), &[0x12, 0x34]);
+    }
+
+    #[test]
+    fn read_reliable_split_packet() {
+        // Arrange
+        let buf = [
+            0b010_1_0000, // Bitflags: bit 7-5: reliability=2=Reliable, bit 4: has_split_packet=1=true
+            0x00, 0x10, // Data bit length: 0x0010=16 bits=2 bytes
+            0x56, 0x34, 0x12, // Reliable message number: 0x123456
+            0x11, 0x22, 0x33, 0x44, // Split packet count: 0x11223344
+            0x13, 0x57, // Split packet ID: 0x1357
+            0x01, 0x23, 0x45, 0x67, // Split packet index: 0x01234567 
+            0x12, 0x34, // Data [0x12, 0x34]
+        ];
+        let mut reader = DataReader::new(&buf);
+
+        // Act
+        let packet = InternalPacket::read(Instant::now(), &mut reader).expect("Failed to read packet");
+
+        // Assert
+        assert!(matches!(packet.reliability(), Reliability::Reliable(message_number) if message_number == MessageNumber::try_from(0x123456).unwrap()));
+        assert!(matches!(packet.ordering(), Ordering::None));
+        assert!(matches!(packet.split_packet_header(), Some(header)
+            if header.split_packet_count() == 0x11223344 &&
+                header.split_packet_id() == 0x1357 &&
+                header.split_packet_index() == 0x01234567
+        ));
+        assert_eq!(packet.payload(), &[0x12, 0x34]);
+    }
+
+    #[test]
+    fn read_reliable_ordered_packet() {
+        // Arrange
+        let buf = [
+            0b011_0_0000, // Bitflags: bit 7-5: reliability=3=Reliable Ordered, bit 4: has_split_packet=0=false
+            0x00, 0x10, // Data bit length: 0x0010=16 bits=2 bytes
+            0x56, 0x34, 0x12, // Reliable message number: 0x123456
+            0x33, 0x22, 0x11, // Ordering index: 0x112233
+            0x05, // Ordering channel: 5
+            0x12, 0x34, // Data [0x12, 0x34]
+        ];
+        let mut reader = DataReader::new(&buf);
+
+        // Act
+        let packet = InternalPacket::read(Instant::now(), &mut reader).expect("Failed to read packet");
+
+        // Assert
+        assert!(matches!(packet.reliability(), Reliability::Reliable(message_number) if message_number == MessageNumber::try_from(0x123456).unwrap()));
+        assert!(matches!(packet.ordering(), Ordering::Ordered {
+            ordering_index,
+            ordering_channel_index: 0x05
+        } if ordering_index == OrderingIndex::try_from(0x112233).unwrap()));
+        assert!(matches!(packet.split_packet_header(), None));
+        assert_eq!(packet.payload(), &[0x12, 0x34]);
+    }    
+
+    #[test]
+    fn read_reliable_ordered_split_packet() {
+        // Arrange
+        let buf = [
+            0b011_1_0000, // Bitflags: bit 7-5: reliability=3=Reliable Ordered, bit 4: has_split_packet=1=true
+            0x00, 0x10, // Data bit length: 0x0010=16 bits=2 bytes
+            0x56, 0x34, 0x12, // Reliable message number: 0x123456
+            0x33, 0x22, 0x11, // Ordering index: 0x112233
+            0x05, // Ordering channel: 5
+            0x11, 0x22, 0x33, 0x44, // Split packet count: 0x11223344
+            0x13, 0x57, // Split packet ID: 0x1357
+            0x01, 0x23, 0x45, 0x67, // Split packet index: 0x01234567 
+            0x12, 0x34, // Data [0x12, 0x34]
+        ];
+        let mut reader = DataReader::new(&buf);
+
+        // Act
+        let packet = InternalPacket::read(Instant::now(), &mut reader).expect("Failed to read packet");
+
+        // Assert
+        assert!(matches!(packet.reliability(), Reliability::Reliable(message_number) if message_number == MessageNumber::try_from(0x123456).unwrap()));
+        assert!(matches!(packet.ordering(), Ordering::Ordered {
+            ordering_index,
+            ordering_channel_index: 0x05
+        } if ordering_index == OrderingIndex::try_from(0x112233).unwrap()));
+        assert!(matches!(packet.split_packet_header(), Some(header)
+            if header.split_packet_count() == 0x11223344 &&
+                header.split_packet_id() == 0x1357 &&
+                header.split_packet_index() == 0x01234567
+        ));
+        assert_eq!(packet.payload(), &[0x12, 0x34]);
+    }
+
+    #[test]
+    fn read_reliable_sequenced_packet() {
+        // Arrange
+        let buf = [
+            0b100_0_0000, // Bitflags: bit 7-5: reliability=4=Reliable Sequenced, bit 4: has_split_packet=0=false
+            0x00, 0x10, // Data bit length: 0x0010=16 bits=2 bytes
+            0x56, 0x34, 0x12, // Reliable message number: 0x123456
+            0x30, 0x20, 0x10, // Sequencing index: 0x102030
+            0x33, 0x22, 0x11, // Ordering index: 0x112233
+            0x05, // Ordering channel: 5
+            0x12, 0x34, // Data [0x12, 0x34]
+        ];
+        let mut reader = DataReader::new(&buf);
+
+        // Act
+        let packet = InternalPacket::read(Instant::now(), &mut reader).expect("Failed to read packet");
+
+        // Assert
+        assert!(matches!(packet.reliability(), Reliability::Reliable(message_number) if message_number == MessageNumber::try_from(0x123456).unwrap()));
+        assert!(matches!(packet.ordering(), Ordering::Sequenced {
+            sequencing_index,
+            ordering_index,
+            ordering_channel_index: 0x05
+        } if sequencing_index == SequencingIndex::try_from(0x102030).unwrap() &&
+            ordering_index == OrderingIndex::try_from(0x112233).unwrap()
+        ));
+        assert!(matches!(packet.split_packet_header(), None));
+        assert_eq!(packet.payload(), &[0x12, 0x34]);
+    }
+
+    #[test]
+    fn read_reliable_sequenced_split_packet() {
+        // Arrange
+        let buf = [
+            0b100_1_0000, // Bitflags: bit 7-5: reliability=4=Reliable Sequenced, bit 4: has_split_packet=1=true
+            0x00, 0x10, // Data bit length: 0x0010=16 bits=2 bytes
+            0x56, 0x34, 0x12, // Reliable message number: 0x123456
+            0x30, 0x20, 0x10, // Sequencing index: 0x102030
+            0x33, 0x22, 0x11, // Ordering index: 0x112233
+            0x05, // Ordering channel: 5
+            0x11, 0x22, 0x33, 0x44, // Split packet count: 0x11223344
+            0x13, 0x57, // Split packet ID: 0x1357
+            0x01, 0x23, 0x45, 0x67, // Split packet index: 0x01234567 
+            0x12, 0x34, // Data [0x12, 0x34]
+        ];
+        let mut reader = DataReader::new(&buf);
+
+        // Act
+        let packet = InternalPacket::read(Instant::now(), &mut reader).expect("Failed to read packet");
+
+        // Assert
+        assert!(matches!(packet.reliability(), Reliability::Reliable(message_number) if message_number == MessageNumber::try_from(0x123456).unwrap()));
+        assert!(matches!(packet.ordering(), Ordering::Sequenced {
+            sequencing_index,
+            ordering_index,
+            ordering_channel_index: 0x05
+        } if sequencing_index == SequencingIndex::try_from(0x102030).unwrap() &&
+            ordering_index == OrderingIndex::try_from(0x112233).unwrap()
+        ));
+        assert!(matches!(packet.split_packet_header(), Some(header)
+            if header.split_packet_count() == 0x11223344 &&
+                header.split_packet_id() == 0x1357 &&
+                header.split_packet_index() == 0x01234567
+        ));
+        assert_eq!(packet.payload(), &[0x12, 0x34]);
+    }       
 }
