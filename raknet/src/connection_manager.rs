@@ -1,5 +1,5 @@
 use std::{net::SocketAddr, collections::HashMap, time::Instant};
-
+use crossbeam_channel::{unbounded, Receiver};
 use log::{error, debug};
 
 use crate::{
@@ -8,6 +8,7 @@ use crate::{
     connection::Connection,
     constants::MAXIMUM_MTU_SIZE,
     offline_packet_handler::OfflinePacketHandler,
+    PeerEvent,
     socket::DatagramSocket,
     utils,
 };
@@ -15,6 +16,7 @@ use crate::{
 pub struct ConnectionManager<T: DatagramSocket> {
     communicator: Communicator<T>,
     connections: HashMap<SocketAddr, Connection>,
+    event_receiver: Receiver<PeerEvent>,
     offline_packet_handler: OfflinePacketHandler,
     receive_buffer: Vec<u8>,
 }
@@ -22,9 +24,11 @@ pub struct ConnectionManager<T: DatagramSocket> {
 impl<T: DatagramSocket> ConnectionManager<T> {
     pub fn new(socket: T, config: Config) -> Self {
         let receive_buffer = vec![0u8; MAXIMUM_MTU_SIZE.into()];
+        let (event_sender, event_receiver) = unbounded();
         ConnectionManager {
-            communicator: Communicator::new(socket, config),
+            communicator: Communicator::new(socket, config, event_sender),
             connections: HashMap::new(),
+            event_receiver,
             offline_packet_handler: OfflinePacketHandler::new(),
             receive_buffer,
         }
@@ -65,6 +69,12 @@ impl<T: DatagramSocket> ConnectionManager<T> {
 
         // Check if any connection should be dropped
         self.connections.retain(|_, conn| !conn.should_drop(time, communicator));
+    }
+
+    /// Gets an event receiver that can be used for receiving
+    /// incoming packets and connection events.
+    pub fn event_receiver(&self) -> Receiver<PeerEvent> {
+        self.event_receiver.clone()
     }
 }
 

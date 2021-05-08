@@ -6,12 +6,13 @@ use log::info;
 use crossbeam_channel::{unbounded, Sender, Receiver, Select};
 
 use crate::{
-    config::Config,
+    Config,
     connection_manager::ConnectionManager,
-    error::Result,
+    Result,
+    PeerEvent,
 };
 
-pub struct RakNetPeer
+pub struct Peer
 {
     connection_manager: ConnectionManager<UdpSocket>,
     command_sender: Sender<Command>,
@@ -40,7 +41,7 @@ pub enum Command
     StopProcessing,
 }
 
-impl RakNetPeer {
+impl Peer {
     /// Creates a RakNetPeer with a default `Config` and binds it to
     /// a UDP socket on the specified address.
     pub fn bind<A: ToSocketAddrs>(addr: A) -> Result<Self> {
@@ -58,7 +59,7 @@ impl RakNetPeer {
         info!("Listening on {}", socket.local_addr()?);
 
         let (command_sender, command_receiver) = unbounded();
-        Ok(RakNetPeer {
+        Ok(Peer {
             connection_manager: ConnectionManager::new(socket, config),
             command_sender,
             command_receiver,           
@@ -124,8 +125,14 @@ impl RakNetPeer {
     ///
     /// Use the command sender to stop the processing or
     /// to force processing to occur now.
-    pub fn get_command_sender(&self) -> Sender<Command>
+    pub fn command_sender(&self) -> Sender<Command>
     {
         self.command_sender.clone()
+    }
+
+    /// Gets an event receiver that can be used for receiving
+    /// incoming packets and connection events.
+    pub fn event_receiver(&self) -> Receiver<PeerEvent> {
+        self.connection_manager.event_receiver()
     }
 }

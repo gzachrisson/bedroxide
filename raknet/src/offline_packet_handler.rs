@@ -224,7 +224,7 @@ impl OfflinePacketHandler {
 #[cfg(test)]
 mod tests {
     use std::{collections::HashMap, net::SocketAddr, time::Instant};
-    use crossbeam_channel::Receiver;
+    use crossbeam_channel::{Receiver, unbounded};
 
     use crate::{        
         communicator::Communicator,
@@ -250,7 +250,8 @@ mod tests {
     fn create_test_setup_with_config(config: Config) -> (OfflinePacketHandler, Communicator<FakeDatagramSocket>, HashMap<SocketAddr, Connection>, Receiver<(Vec<u8>, SocketAddr)>, SocketAddr, SocketAddr) {
         let socket = FakeDatagramSocket::new();
         let datagram_receiver = socket.get_datagram_receiver();
-        let communicator = Communicator::new(socket, config);
+        let (event_sender, _event_receiver) = unbounded();
+        let communicator = Communicator::new(socket, config, event_sender);
         let connections = HashMap::<SocketAddr, Connection>::new();
         let remote_addr = "192.168.1.1:19132".parse::<SocketAddr>().expect("Could not create address");
         let own_addr = "127.0.0.1:19132".parse::<SocketAddr>().expect("Could not create address");
