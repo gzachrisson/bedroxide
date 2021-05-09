@@ -67,6 +67,11 @@ impl<T: DatagramSocket> ConnectionManager<T> {
             }
         }
 
+        // Update all connections
+        for conn in self.connections.values_mut() {
+            conn.update(time, communicator);
+        }
+
         // Check if any connection should be dropped
         self.connections.retain(|_, conn| !conn.should_drop(time, communicator));
     }

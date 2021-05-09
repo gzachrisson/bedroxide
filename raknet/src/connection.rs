@@ -2,7 +2,9 @@ use std::{net::SocketAddr, time::Instant};
 use log::{debug, error};
 
 use crate::{
+    acknowledgement::{Acknowledgement, OutgoingAcknowledgements},
     communicator::Communicator,
+    constants::MAX_ACK_DATAGRAM_HEADER_SIZE,
     datagram_header::DatagramHeader,
     split_packet_handler::SplitPacketHandler,
     internal_packet::{InternalPacket, InternalOrdering, InternalReliability},
@@ -14,6 +16,7 @@ use crate::{
 };
 
 pub struct Connection {
+    outgoing_acks: OutgoingAcknowledgements,
     connection_time: Instant,
     split_packet_handler: SplitPacketHandler,
     remote_addr: SocketAddr,
@@ -26,6 +29,7 @@ pub struct Connection {
 impl Connection {
     pub fn incoming(connection_time: Instant, remote_addr: SocketAddr, remote_guid: u64, mtu: u16) -> Connection {
         Connection {
+            outgoing_acks: OutgoingAcknowledgements::new(),
             connection_time,
             split_packet_handler: SplitPacketHandler::new(),
             remote_addr,
@@ -52,6 +56,45 @@ impl Connection {
         self.is_incoming
     }
 
+    /// Performs various connection related actions such as sending acknowledgements
+    /// and resending dropped packets.
+    pub fn update(&mut self, time: Instant, communicator: &mut Communicator<impl DatagramSocket>) {
+        if self.outgoing_acks.should_send_acks(time) {
+            self.send_acks(communicator);
+        }
+    }
+
+    /// Sends all waiting outgoing acknowledgements.
+    fn send_acks(&mut self, communicator: &mut Communicator<impl DatagramSocket>) {
+        // TODO: Check calculation (MTU - datagram header (bitflags: u8=1, AS: f32=4))
+        let max_datagram_payload = self.mtu as usize - MAX_ACK_DATAGRAM_HEADER_SIZE;
+        while !self.outgoing_acks.is_empty() {
+            let mut ack = Acknowledgement::new();
+            while !ack.is_full(max_datagram_payload) {
+                if let Some(range) = self.outgoing_acks.pop_range() {
+                    ack.push(range);
+                } else {
+                    // No more ack ranges                    
+                    break;
+                }
+            }
+
+            let datagram_header = DatagramHeader::Ack { data_arrival_rate: None };
+            let mut buf = Vec::with_capacity(MAX_ACK_DATAGRAM_HEADER_SIZE + ack.bytes_used());
+            if let Err(err) = datagram_header.write(&mut buf) {
+                error!("Could not write datagram header: {:?}", err);
+                continue;
+            }
+            if let Err(err) = ack.write(&mut buf) {
+                error!("Could not write ack payload: {:?}", err);
+                continue;
+            }
+
+            debug!("Sending ack: {:?}", ack);
+            communicator.send_datagram(&buf, self.remote_addr);
+        }
+    }
+
     /// Processes an incoming datagram.
     pub fn process_incoming_datagram(&mut self, payload: &[u8], time: Instant, communicator: &mut Communicator<impl DatagramSocket>) {
         let mut reader = DataReader::new(payload);
@@ -69,7 +112,9 @@ impl Connection {
                 debug!("Received a datagram of packets. is_packet_pair={}, is_continuous_send={}, needs_data_arrival_rate={}, datagram_number={}", 
                 is_packet_pair, is_continuous_send, needs_data_arrival_rate, datagram_number);
                 // TODO: Schedule NACKs on missed datagrams to be sent next update
-                // TODO: Schedule ACK on the received datagram to be sent next update (if it is time to send ACKs then)
+                
+                self.outgoing_acks.insert(datagram_number, time);
+
                 match self.process_incoming_packets(reader, time) {
                     Ok(packets) => {
                         for packet in packets.into_iter() {

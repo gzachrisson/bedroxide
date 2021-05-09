@@ -11,6 +11,7 @@ pub use self::{
     writer::DataWrite,
 };
 
+mod acknowledgement;
 mod communicator;
 mod config;
 mod connection;

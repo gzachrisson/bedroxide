@@ -38,7 +38,6 @@ impl DatagramHeader {
         }
     }
 
-    #[allow(dead_code)]
     pub fn write(&self, writer: &mut dyn DataWrite) -> Result<()> {
         // Bit 7 = "isValid"
         let mut bitflags: u8 = 1 << 7;

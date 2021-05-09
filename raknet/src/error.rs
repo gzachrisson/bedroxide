@@ -90,6 +90,9 @@ impl fmt::Display for ReadError {
 pub enum WriteError {
     /// Not all bytes could be written.
     NotAllBytesWritten(usize),
+    /// There were more acknowledgement ranges in a
+    /// datagram than what can fit into an u16.
+    TooManyAckRanges,
 }
 
 impl std::error::Error for WriteError {}
@@ -98,6 +101,7 @@ impl fmt::Display for WriteError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             WriteError::NotAllBytesWritten(c) => write!(f, "Could not write all bytes. Bytes written: {}", c),
+            WriteError::TooManyAckRanges => write!(f, "Too many acknowledgement ranges in datagram."),
         }
     }
 }

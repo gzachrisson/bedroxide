@@ -1,3 +1,5 @@
+use std::net::SocketAddr;
+
 use crossbeam_channel::Sender;
 use log::error;
 
@@ -28,6 +30,12 @@ impl<T: DatagramSocket> Communicator<T> {
 
     pub fn socket(&mut self) -> &mut T {
         &mut self.socket
+    }
+
+    pub fn send_datagram(&mut self, payload: &[u8], addr: SocketAddr) {
+        if let Err(err) = self.socket.send_datagram(payload, addr) {
+            error!("Failed sending datagram to {}: {:?}", addr, err);
+        }
     }
 
     pub fn send_event(&mut self, event: PeerEvent) {
