@@ -155,3 +155,177 @@ impl Acknowledgement {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::convert::TryFrom;
+    use crate::DatagramSequenceNumber;
+    use super::{Acknowledgement, AcknowledgementRange};
+
+    #[test]
+    fn acknowledgement_write_one_range_one_ack() {
+        // Arrange
+        let mut ack = Acknowledgement::new();
+        ack.push(AcknowledgementRange::new(DatagramSequenceNumber::from(5u8), DatagramSequenceNumber::from(5u8)));
+        let mut buf = Vec::new();
+
+        // Act
+        ack.write(&mut buf).expect("Couldn't write ack");
+
+        // Assert
+        assert_eq!(buf, vec![
+            0x00, 0x01, // Range count: 0x0001
+            0x01, // Start equal to end? 0x01=yes
+            0x05, 0x00, 0x00, // Datagram number: 0x000005 
+        ]);
+    }
+
+    #[test]
+    fn acknowledgement_write_one_range_multiple_acks() {
+        // Arrange
+        let mut ack = Acknowledgement::new();
+        ack.push(AcknowledgementRange::new(DatagramSequenceNumber::from(0u8), DatagramSequenceNumber::from(0xFFu8)));
+        let mut buf = Vec::new();
+
+        // Act
+        ack.write(&mut buf).expect("Couldn't write ack");
+
+        // Assert
+        assert_eq!(buf, vec![
+            0x00, 0x01, // Range count: 0x0001
+            0x00, // Start equal to end? 0x00=no
+            0x00, 0x00, 0x00, // Start datagram number: 0x000000
+            0xFF, 0x00, 0x00, // End datagram number: 0x0000FF
+        ]);
+    }    
+
+    #[test]
+    fn acknowledgement_write_multiple_ranges() {
+        // Arrange
+        let mut ack = Acknowledgement::new();
+        ack.push(AcknowledgementRange::new(DatagramSequenceNumber::from(0u8), DatagramSequenceNumber::from(0u8)));
+        ack.push(AcknowledgementRange::new(DatagramSequenceNumber::from(5u8), DatagramSequenceNumber::from(0xFFu8)));
+        ack.push(AcknowledgementRange::new(DatagramSequenceNumber::try_from(0x123456).unwrap(), DatagramSequenceNumber::try_from(0x334455).unwrap()));
+        let mut buf = Vec::new();
+
+        // Act
+        ack.write(&mut buf).expect("Couldn't write ack");
+
+        // Assert
+        assert_eq!(buf, vec![
+            0x00, 0x03, // Range count: 0x0003
+            0x01, // Start equal to end? 0x01=yes
+            0x00, 0x00, 0x00, // Datagram number: 0x000000
+            0x00, // Start equal to end? 0x00=no
+            0x05, 0x00, 0x00, // Start datagram number: 0x000005
+            0xFF, 0x00, 0x00, // End datagram number: 0x0000FF
+            0x00, // Start equal to end? 0x00=no
+            0x56, 0x34, 0x12, // Start datagram number: 0x123456
+            0x55, 0x44, 0x33, // End datagram number: 0x334455
+        ]);
+    }    
+
+    #[test]
+    fn acknowledgement_bytes_used_one_range_one_ack() {
+        // Arrange
+        let mut ack = Acknowledgement::new();
+        ack.push(AcknowledgementRange::new(DatagramSequenceNumber::from(5u8), DatagramSequenceNumber::from(5u8)));
+
+        // Act/Assert        
+        assert_eq!(ack.bytes_used(), 2 + (1 + 3));
+    }   
+
+    #[test]
+    fn acknowledgement_bytes_used_multiple_ranges() {
+        // Arrange
+        let mut ack = Acknowledgement::new();
+        ack.push(AcknowledgementRange::new(DatagramSequenceNumber::from(0u8), DatagramSequenceNumber::from(0u8)));
+        ack.push(AcknowledgementRange::new(DatagramSequenceNumber::from(5u8), DatagramSequenceNumber::from(0xFFu8)));
+        ack.push(AcknowledgementRange::new(DatagramSequenceNumber::try_from(0x123456).unwrap(), DatagramSequenceNumber::try_from(0x334455).unwrap()));
+
+        // Act/Assert        
+        assert_eq!(ack.bytes_used(), 2 + (1 + 3) + (1 + 3 + 3) + (1 + 3 + 3));
+    }
+
+    #[test]
+    fn acknowledgement_is_full_no_range() {
+        // Arrange
+        let ack = Acknowledgement::new();
+
+        // Act/Assert        
+        assert!(ack.is_full(2));
+        assert!(ack.is_full(2 + (1 + 3 + 2)));
+
+        assert!(!ack.is_full(2 + (1 + 3 + 3)));
+        assert!(!ack.is_full(2 + (1 + 3 + 4)));
+    }
+
+    #[test]
+    fn acknowledgement_is_full_multiple_ranges() {
+        // Arrange
+        let mut ack = Acknowledgement::new();
+        ack.push(AcknowledgementRange::new(DatagramSequenceNumber::from(0u8), DatagramSequenceNumber::from(0u8)));
+        ack.push(AcknowledgementRange::new(DatagramSequenceNumber::from(5u8), DatagramSequenceNumber::from(0xFFu8)));
+        ack.push(AcknowledgementRange::new(DatagramSequenceNumber::try_from(0x123456).unwrap(), DatagramSequenceNumber::try_from(0x334455).unwrap()));
+
+        // Act/Assert        
+        assert!(ack.is_full(2 + (1 + 3 + 3 )));
+        assert!(ack.is_full(2 + (1 + 3) + (1 + 3 + 3) + (1 + 3 + 3)));
+        assert!(ack.is_full(2 + (1 + 3) + (1 + 3 + 3) + (1 + 3 + 3) + (1 + 3 + 2)));
+
+        assert!(!ack.is_full(2 + (1 + 3) + (1 + 3 + 3) + (1 + 3 + 3) + (1 + 3 + 3)));
+        assert!(!ack.is_full(2 + (1 + 3) + (1 + 3 + 3) + (1 + 3 + 3) + (1 + 3 + 4)));
+    }
+
+    #[test]
+    fn acknowledgement_range_initial_values() {
+        // Arrange
+        let range = AcknowledgementRange::new(DatagramSequenceNumber::from(7u8), DatagramSequenceNumber::from(255u8));
+
+        // Act/Assert        
+        assert_eq!(range.start(), 7u8.into());
+        assert_eq!(range.end(), 255u8.into());
+    }
+
+    #[test]
+    fn acknowledgement_push_can_push() {
+        // Arrange
+        let mut range = AcknowledgementRange::new(DatagramSequenceNumber::from(7u8), DatagramSequenceNumber::from(200u8));
+
+        // Act/Assert
+        assert!(range.push(201u8.into()));
+        assert!(range.push(202u8.into()));
+        
+        //Assert        
+        assert_eq!(range.start(), 7u8.into());
+        assert_eq!(range.end(), 202u8.into());
+    }
+
+    #[test]
+    fn acknowledgement_push_out_of_sequence() {
+        // Arrange
+        let mut range = AcknowledgementRange::new(DatagramSequenceNumber::from(7u8), DatagramSequenceNumber::from(200u8));
+
+        // Act/Assert
+        assert!(!range.push(199u8.into()));
+        assert!(!range.push(202u8.into()));
+        
+        //Assert        
+        assert_eq!(range.start(), 7u8.into());
+        assert_eq!(range.end(), 200u8.into());
+    }
+
+    #[test]
+    fn acknowledgement_push_end_of_sequence() {
+        // Arrange
+        let mut range = AcknowledgementRange::new(7u8.into(), DatagramSequenceNumber::try_from(0xFFFFFEu32).unwrap());
+
+        // Act/Assert
+        assert!(range.push(DatagramSequenceNumber::try_from(0xFFFFFFu32).unwrap()));
+        assert!(!range.push(0u8.into()));
+        
+        //Assert        
+        assert_eq!(range.start(), 7u8.into());
+        assert_eq!(range.end(), DatagramSequenceNumber::try_from(0xFFFFFFu32).unwrap());
+    }
+}
