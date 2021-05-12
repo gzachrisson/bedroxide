@@ -13,8 +13,9 @@ pub struct u24(u32);
 impl u24 {
     pub const MAX: Self = u24(0xFFFFFFu32);
     pub const MIN: Self = u24(0);
+    pub const HALF: Self = u24(0xFFFFFFu32 / 2);
 
-    fn mask(self) -> Self {
+    const fn mask(self) -> Self {
         u24(self.0 & 0xFFFFFFu32)
     }
 
@@ -24,6 +25,10 @@ impl u24 {
     
     pub fn wrapping_sub(self, rhs: Self) -> Self {
         u24(self.0.wrapping_sub(rhs.0)).mask()
+    }
+
+    pub const fn from_masked_u32(value: u32) -> u24 {
+        u24(value).mask()
     }
 
     pub const fn from_le_bytes(bytes: [u8; 3]) -> u24 {
