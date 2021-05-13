@@ -32,6 +32,7 @@ mod packet;
 mod peer;
 mod peer_event;
 mod reader;
+mod reliable_message_number_handler;
 mod socket;
 mod split_packet_handler;
 mod utils;

@@ -13,7 +13,9 @@ pub struct u24(u32);
 impl u24 {
     pub const MAX: Self = u24(0xFFFFFFu32);
     pub const MIN: Self = u24(0);
-    pub const HALF_MAX: Self = u24(0xFFFFFFu32 / 2);
+    pub const ZERO: Self = u24(0);
+    pub const ONE: Self = u24(1);
+    pub const HALF_MAX: Self = u24(0xFFFFFFu32 / 2);    
 
     const fn mask(self) -> Self {
         u24(self.0 & 0xFFFFFFu32)
@@ -148,6 +150,12 @@ impl From<&u24> for u24 {
 impl From<u24> for u32 {
     fn from(other: u24) -> Self {
         other.0
+    }
+}
+
+impl From<u24> for usize {
+    fn from(other: u24) -> Self {
+        other.0 as usize
     }
 }
 

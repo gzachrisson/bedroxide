@@ -10,6 +10,7 @@ use crate::{
     internal_packet::{InternalPacket, InternalOrdering, InternalReliability},
     nack::OutgoingNacks,
     reader::{DataRead, DataReader},
+    reliable_message_number_handler::ReliableMessageNumberHandler,
     Packet,
     PeerEvent,
     Result,
@@ -20,6 +21,7 @@ use crate::{
 pub struct Connection {
     outgoing_acks: OutgoingAcknowledgements,
     outgoing_nacks: OutgoingNacks,
+    reliable_message_number_handler: ReliableMessageNumberHandler,
     connection_time: Instant,
     split_packet_handler: SplitPacketHandler,
     remote_addr: SocketAddr,
@@ -34,6 +36,7 @@ impl Connection {
         Connection {
             outgoing_acks: OutgoingAcknowledgements::new(),
             outgoing_nacks: OutgoingNacks::new(),
+            reliable_message_number_handler: ReliableMessageNumberHandler::new(),
             connection_time,
             split_packet_handler: SplitPacketHandler::new(),
             remote_addr,
@@ -176,7 +179,10 @@ impl Connection {
             debug!("Received a packet:\n{:?}", packet);
             if let InternalReliability::Reliable(reliable_message_number) = packet.reliability() {
                 debug!("Packet is reliable with message number {}", reliable_message_number);
-                // TODO: Check if the reliable message number is the expected. Update holes and the expected. Drop if it is a duplicate.
+                if self.reliable_message_number_handler.should_discard_packet(reliable_message_number) {
+                    debug!("Dropping packet with duplicate message number: {}", reliable_message_number);
+                    continue;
+                }
             }
 
             if let Some(header) = packet.split_packet_header() {
