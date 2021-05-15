@@ -18,7 +18,8 @@ impl OutgoingNacks {
     }
 
     pub fn handle_datagram(&mut self, number: DatagramSequenceNumber) {
-        if Self::wrapping_less_than(number, self.expected_next_number) {
+        if number.wrapping_less_than(self.expected_next_number) {
+            // Duplicate datagram
             return;
         }
 
@@ -28,16 +29,11 @@ impl OutgoingNacks {
         let mut nack_count = 0;
         while expected_number != number && nack_count < 1000 {
             self.nacks.push(expected_number);
-            expected_number = expected_number.wrapping_add(DatagramSequenceNumber::from(1u8));
+            expected_number = expected_number.wrapping_add(DatagramSequenceNumber::ONE);
             nack_count = nack_count + 1;
         }
 
-        self.expected_next_number = number.wrapping_add(DatagramSequenceNumber::from(1u8));
-    }
-
-
-    fn wrapping_less_than(a: DatagramSequenceNumber, b: DatagramSequenceNumber) -> bool {        
-        b != a && b.wrapping_sub(a) < DatagramSequenceNumber::HALF_MAX + 2u8.into()
+        self.expected_next_number = number.wrapping_add(DatagramSequenceNumber::ONE);
     }
 
     pub fn is_empty(&self) -> bool {

@@ -9,6 +9,7 @@ use crate::{
     datagram_range_list::DatagramRangeList,
     internal_packet::{InternalPacket, InternalOrdering, InternalReliability},
     nack::OutgoingNacks,
+    ordering_system::OrderingSystem,
     reader::{DataRead, DataReader},
     reliable_message_number_handler::ReliableMessageNumberHandler,
     Packet,
@@ -22,6 +23,7 @@ pub struct Connection {
     outgoing_acks: OutgoingAcknowledgements,
     outgoing_nacks: OutgoingNacks,
     reliable_message_number_handler: ReliableMessageNumberHandler,
+    ordering_system: OrderingSystem,
     connection_time: Instant,
     split_packet_handler: SplitPacketHandler,
     remote_addr: SocketAddr,
@@ -37,6 +39,7 @@ impl Connection {
             outgoing_acks: OutgoingAcknowledgements::new(),
             outgoing_nacks: OutgoingNacks::new(),
             reliable_message_number_handler: ReliableMessageNumberHandler::new(),
+            ordering_system: OrderingSystem::new(),
             connection_time,
             split_packet_handler: SplitPacketHandler::new(),
             remote_addr,
@@ -200,13 +203,28 @@ impl Connection {
                 },
                 InternalOrdering::Ordered { ordering_index, ordering_channel_index } => {
                     debug!("Packed is Ordered. ord_idx={}, ord_ch_idx={}", ordering_index, ordering_channel_index);
-                    // TODO: Check if the order is correct so the packet can be delivered to the user. Buffer it otherwise.
-                    packets.push(Packet::new(self.remote_addr, self.remote_guid, packet.into_payload()));
+                    if let Some(ordering_channel) = self.ordering_system.get_channel(ordering_channel_index) {
+                        let addr = self.remote_addr;
+                        let guid = self.remote_guid;
+                        packets.extend(ordering_channel
+                            .process_incoming(None, ordering_index, packet.into_payload())
+                            .into_iter()
+                            .chain(ordering_channel.iter_mut())
+                            .map(|payload| Packet::new(addr, guid, payload))
+                        );
+                    } else {
+                        error!("Invalid ordering channel: {}", ordering_channel_index);
+                    }
                 },
                 InternalOrdering::Sequenced { sequencing_index, ordering_index, ordering_channel_index } => {
                     debug!("Packet id Reliable Sequenced. seq_idx={}, ord_idx={}, ord_ch_idx={}", sequencing_index, ordering_index, ordering_channel_index);
-                    // TODO: Check if the sequence is correct so the packet can be delivered to the user. Drop it or buffer it otherwise.
-                    packets.push(Packet::new(self.remote_addr, self.remote_guid, packet.into_payload()));
+                    if let Some(ordering_channel) = self.ordering_system.get_channel(ordering_channel_index) {
+                        if let Some(payload) = ordering_channel.process_incoming(Some(sequencing_index), ordering_index, packet.into_payload()) {
+                            packets.push(Packet::new(self.remote_addr, self.remote_guid, payload));
+                        }
+                    } else {
+                        error!("Invalid ordering channel: {}", ordering_channel_index);
+                    }
                 },
             }
         }

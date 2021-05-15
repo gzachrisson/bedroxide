@@ -29,6 +29,10 @@ impl u24 {
         u24(self.0.wrapping_sub(rhs.0)).mask()
     }
 
+    pub fn wrapping_less_than(self, rhs: Self) -> bool {        
+        rhs != self && rhs.wrapping_sub(self) < Self::HALF_MAX + u24(2)
+    }
+
     pub const fn from_masked_u32(value: u32) -> u24 {
         u24(value).mask()
     }
@@ -156,6 +160,12 @@ impl From<u24> for u32 {
 impl From<u24> for usize {
     fn from(other: u24) -> Self {
         other.0 as usize
+    }
+}
+
+impl From<u24> for u64 {
+    fn from(other: u24) -> Self {
+        other.0 as u64
     }
 }
 

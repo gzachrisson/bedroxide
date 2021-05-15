@@ -1,7 +1,6 @@
 use std::time::Instant;
 
 use crate::{
-    constants::NUMBER_OF_ORDERING_CHANNELS,
     error::ReadError,
     number::{MessageNumber, OrderingChannelIndex, OrderingIndex, SequencingIndex},
     DataRead,
@@ -74,9 +73,6 @@ impl InternalPacket {
                 let sequencing_index = SequencingIndex::from(reader.read_u24()?);
                 let ordering_index = OrderingIndex::from(reader.read_u24()?);
                 let ordering_channel_index = OrderingChannelIndex::from(reader.read_u8()?);
-                if ordering_channel_index >= NUMBER_OF_ORDERING_CHANNELS {
-                    return Err(ReadError::InvalidHeader.into());
-                }
                 (InternalReliability::Unreliable, InternalOrdering::Sequenced {
                     sequencing_index,
                     ordering_index,
@@ -88,9 +84,6 @@ impl InternalPacket {
                 let reliable_message_number = MessageNumber::from(reader.read_u24()?);
                 let ordering_index = OrderingIndex::from(reader.read_u24()?);
                 let ordering_channel_index = OrderingChannelIndex::from(reader.read_u8()?);
-                if ordering_channel_index >= NUMBER_OF_ORDERING_CHANNELS {
-                    return Err(ReadError::InvalidHeader.into());
-                }
                 (InternalReliability::Reliable(reliable_message_number), InternalOrdering::Ordered {
                     ordering_index,
                     ordering_channel_index,
@@ -101,9 +94,6 @@ impl InternalPacket {
                 let sequencing_index = SequencingIndex::from(reader.read_u24()?);
                 let ordering_index = OrderingIndex::from(reader.read_u24()?);
                 let ordering_channel_index = OrderingChannelIndex::from(reader.read_u8()?);
-                if ordering_channel_index >= NUMBER_OF_ORDERING_CHANNELS {
-                    return Err(ReadError::InvalidHeader.into());
-                }
                 (InternalReliability::Reliable(reliable_message_number),InternalOrdering::Sequenced {
                     sequencing_index,
                     ordering_index,
