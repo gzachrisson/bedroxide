@@ -1,13 +1,9 @@
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use crossbeam_channel::Sender;
 use log::error;
 
-use crate::{
-    Config,
-    PeerEvent,
-    socket::DatagramSocket,
-};
+use crate::{Config, PeerEvent, Result, constants::MAX_NUMBER_OF_INTERNAL_IDS, socket::DatagramSocket};
 
 pub struct Communicator<T: DatagramSocket> {
     config: Config,
@@ -42,5 +38,17 @@ impl<T: DatagramSocket> Communicator<T> {
         if let Err(_) = self.event_sender.send(event) {
             error!("Send event failed since the event receiver has been dropped");
         }
+    }
+
+    pub fn local_addr(&self) -> Result<SocketAddr> {
+        Ok(self.socket.local_addr()?)
+    }
+
+    pub fn get_addr_list(&self) -> [SocketAddr; MAX_NUMBER_OF_INTERNAL_IDS] {
+        let mut addr_list = [SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0); MAX_NUMBER_OF_INTERNAL_IDS];
+        if let Ok(local_addr) = self.local_addr() {
+            addr_list[0] = local_addr;
+        }
+        addr_list
     }
 }

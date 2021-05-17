@@ -88,8 +88,12 @@ impl fmt::Display for ReadError {
 
 #[derive(Debug)]
 pub enum WriteError {
+    /// The header was invalid.
+    InvalidHeader,
     /// Not all bytes could be written.
     NotAllBytesWritten(usize),
+    /// Payload was too large.
+    PayloadTooLarge,
     /// There were more ack/nack ranges in a
     /// datagram than what can fit into an u16.
     TooManyRanges,
@@ -100,7 +104,9 @@ impl std::error::Error for WriteError {}
 impl fmt::Display for WriteError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            WriteError::InvalidHeader => write!(f, "The header in invalid."),
             WriteError::NotAllBytesWritten(c) => write!(f, "Could not write all bytes. Bytes written: {}", c),
+            WriteError::PayloadTooLarge => write!(f, "Payload too large."),
             WriteError::TooManyRanges => write!(f, "Too many acknowledgement ranges in datagram."),
         }
     }

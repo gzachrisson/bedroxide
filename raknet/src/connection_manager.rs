@@ -101,15 +101,16 @@ mod tests {
             UnconnectedPingMessage,
             UnconnectedPongMessage,
         },
-        reader::{OfflineMessageRead, DataReader},
+        reader::{MessageRead, DataReader},
         socket::FakeDatagramSocket,
-        writer::OfflineMessageWrite,
+        writer::MessageWrite,
     };
 
     const OWN_GUID: u64 = 0xFEDCBA9876453210;
 
     fn create_connection_manager() -> (ConnectionManager<FakeDatagramSocket>, Sender<(Vec<u8>, SocketAddr)>, Receiver<(Vec<u8>, SocketAddr)>, SocketAddr) {
-        let fake_socket = FakeDatagramSocket::new();
+        let local_addr = "127.0.0.2:19132".parse::<SocketAddr>().expect("Could not create address");
+        let fake_socket = FakeDatagramSocket::new(local_addr);
         let datagram_sender = fake_socket.get_datagram_sender();
         let datagram_receiver = fake_socket.get_datagram_receiver();
         let remote_addr = "127.0.0.1:19132".parse::<SocketAddr>().expect("Could not create address");
@@ -118,13 +119,13 @@ mod tests {
         (ConnectionManager::new(fake_socket, config), datagram_sender, datagram_receiver, remote_addr)
     }
 
-    fn send_datagram<M: OfflineMessageWrite>(message: M, datagram_sender: &mut Sender<(Vec<u8>, SocketAddr)>, remote_addr: SocketAddr) {
+    fn send_datagram<M: MessageWrite>(message: M, datagram_sender: &mut Sender<(Vec<u8>, SocketAddr)>, remote_addr: SocketAddr) {
         let mut buf = Vec::new();
         message.write_message(&mut buf).expect("Could not create message");
         datagram_sender.send((buf, remote_addr)).expect("Could not send datagram");
     }
 
-    fn receive_datagram<M: OfflineMessageRead>(datagram_receiver: &mut Receiver<(Vec<u8>, SocketAddr)>) -> (M, SocketAddr) {
+    fn receive_datagram<M: MessageRead>(datagram_receiver: &mut Receiver<(Vec<u8>, SocketAddr)>) -> (M, SocketAddr) {
         let (payload, addr) = datagram_receiver.try_recv().expect("Datagram not received");
         let mut reader = DataReader::new(&payload);
         let message = M::read_message(&mut reader).expect("Could not parse message");

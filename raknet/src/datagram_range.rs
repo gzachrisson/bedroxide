@@ -50,7 +50,7 @@ impl DatagramRange {
 #[cfg(test)]
 mod tests {
     use std::convert::TryFrom;
-    use crate::DatagramSequenceNumber;
+    use crate::number::DatagramSequenceNumber;
     use super::DatagramRange;
 
     #[test]

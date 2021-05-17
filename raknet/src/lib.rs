@@ -3,8 +3,8 @@ pub use crossbeam_channel as channel;
 pub use self::{
     config::Config,
     error::{Error, Result, ReadError, WriteError},
-    number::{DatagramSequenceNumber, OrderingChannelIndex, u24},
-    packet::Packet,
+    number::OrderingChannelIndex,
+    packet::{Packet, Reliability, Ordering, Priority},
     peer::{Peer, Command},
     peer_event::PeerEvent,
     reader::DataRead,
@@ -35,6 +35,7 @@ mod peer;
 mod peer_event;
 mod reader;
 mod reliable_message_number_handler;
+mod reliability_layer;
 mod socket;
 mod split_packet_handler;
 mod utils;

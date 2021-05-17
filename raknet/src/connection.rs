@@ -1,31 +1,22 @@
-use std::{net::SocketAddr, time::Instant};
+use std::{convert::TryFrom, net::SocketAddr, time::Instant};
 use log::{debug, error};
 
 use crate::{
-    acknowledgement::OutgoingAcknowledgements,
     communicator::Communicator,
-    constants::{MAX_ACK_DATAGRAM_HEADER_SIZE, MAX_NACK_DATAGRAM_HEADER_SIZE},
-    datagram_header::DatagramHeader,
-    datagram_range_list::DatagramRangeList,
-    internal_packet::{InternalPacket, InternalOrdering, InternalReliability},
-    nack::OutgoingNacks,
-    ordering_system::OrderingSystem,
-    reader::{DataRead, DataReader},
-    reliable_message_number_handler::ReliableMessageNumberHandler,
-    Packet,
+    message_ids::MessageId,
+    messages::{ConnectionRequestMessage, ConnectionRequestAcceptedMessage},
+    packet::{Ordering, Packet, Priority, Reliability},
     PeerEvent,
-    Result,
+    reader::{DataReader, MessageRead},
+    reliability_layer::ReliabilityLayer,
     socket::DatagramSocket,
-    split_packet_handler::SplitPacketHandler,
+    writer::MessageWrite
 };
 
 pub struct Connection {
-    outgoing_acks: OutgoingAcknowledgements,
-    outgoing_nacks: OutgoingNacks,
-    reliable_message_number_handler: ReliableMessageNumberHandler,
-    ordering_system: OrderingSystem,
+    reliability_layer: ReliabilityLayer,
     connection_time: Instant,
-    split_packet_handler: SplitPacketHandler,
+    peer_creation_time: Instant,
     remote_addr: SocketAddr,
     remote_guid: u64,
     is_incoming: bool,
@@ -34,14 +25,11 @@ pub struct Connection {
 }
 
 impl Connection {
-    pub fn incoming(connection_time: Instant, remote_addr: SocketAddr, remote_guid: u64, mtu: u16) -> Connection {
+    pub fn incoming(connection_time: Instant, peer_creation_time: Instant, remote_addr: SocketAddr, remote_guid: u64, mtu: u16) -> Connection {
         Connection {
-            outgoing_acks: OutgoingAcknowledgements::new(),
-            outgoing_nacks: OutgoingNacks::new(),
-            reliable_message_number_handler: ReliableMessageNumberHandler::new(),
-            ordering_system: OrderingSystem::new(),
+            reliability_layer: ReliabilityLayer::new(remote_addr, remote_guid, mtu),
             connection_time,
-            split_packet_handler: SplitPacketHandler::new(),
+            peer_creation_time,
             remote_addr,
             remote_guid,
             is_incoming: true,
@@ -69,172 +57,80 @@ impl Connection {
     /// Performs various connection related actions such as sending acknowledgements
     /// and resending dropped packets.
     pub fn update(&mut self, time: Instant, communicator: &mut Communicator<impl DatagramSocket>) {
-        if self.outgoing_acks.should_send_acks(time) {
-            self.send_acks(communicator);
-        }
-
-        if !self.outgoing_nacks.is_empty() {
-            self.send_nacks(communicator);
-        }
+        self.reliability_layer.update(time, communicator);
     }
-
-    /// Sends all waiting outgoing acknowledgements.
-    fn send_acks(&mut self, communicator: &mut Communicator<impl DatagramSocket>) {
-        // TODO: Check calculation (MTU - datagram header (bitflags: u8=1, AS: f32=4))
-        let max_datagram_payload = self.mtu as usize - MAX_ACK_DATAGRAM_HEADER_SIZE;
-        while !self.outgoing_acks.is_empty() {
-            let mut ack_range_list = DatagramRangeList::new();
-            while !ack_range_list.is_full(max_datagram_payload) {
-                if let Some(range) = self.outgoing_acks.pop_range() {
-                    ack_range_list.push(range);
-                } else {
-                    // No more ranges                    
-                    break;
-                }
-            }
-
-            let datagram_header = DatagramHeader::Ack { data_arrival_rate: None };
-            let mut buf = Vec::with_capacity(MAX_ACK_DATAGRAM_HEADER_SIZE + ack_range_list.bytes_used());
-            if let Err(err) = datagram_header.write(&mut buf) {
-                error!("Could not write datagram header: {:?}", err);
-                continue;
-            }
-            if let Err(err) = ack_range_list.write(&mut buf) {
-                error!("Could not write ACKs payload: {:?}", err);
-                continue;
-            }
-
-            debug!("Sending ACKs: {:?}", ack_range_list);
-            communicator.send_datagram(&buf, self.remote_addr);
-        }
-    }
-
-    /// Sends all waiting outgoing NACKs.
-    fn send_nacks(&mut self, communicator: &mut Communicator<impl DatagramSocket>) {
-        // TODO: Check calculation (MTU - datagram header (bitflags: u8=1))
-        let max_datagram_payload = self.mtu as usize - MAX_NACK_DATAGRAM_HEADER_SIZE;
-        while !self.outgoing_nacks.is_empty() {
-            let mut nack_range_list = DatagramRangeList::new();
-            while !nack_range_list.is_full(max_datagram_payload) {
-                if let Some(range) = self.outgoing_nacks.pop_range() {
-                    nack_range_list.push(range);
-                } else {
-                    // No more ranges                    
-                    break;
-                }
-            }
-
-            let datagram_header = DatagramHeader::Nack;
-            let mut buf = Vec::with_capacity(MAX_NACK_DATAGRAM_HEADER_SIZE + nack_range_list.bytes_used());
-            if let Err(err) = datagram_header.write(&mut buf) {
-                error!("Could not write datagram header: {:?}", err);
-                continue;
-            }
-            if let Err(err) = nack_range_list.write(&mut buf) {
-                error!("Could not write NACKs payload: {:?}", err);
-                continue;
-            }
-
-            debug!("Sending NACKs: {:?}", nack_range_list);
-            communicator.send_datagram(&buf, self.remote_addr);
-        }
-    }    
 
     /// Processes an incoming datagram.
     pub fn process_incoming_datagram(&mut self, payload: &[u8], time: Instant, communicator: &mut Communicator<impl DatagramSocket>) {
-        let mut reader = DataReader::new(payload);
-        match DatagramHeader::read(&mut reader) {
-            Ok(DatagramHeader::Ack { data_arrival_rate }) => {
-                debug!("Received ACK. data_arrival_rate={:?}", data_arrival_rate);
-                // TODO: Send ACK receipt to user for unreliable packets with ACK receipt requested (and remove packets from list)
-                // TODO: Remove ACK:ed packets from resend list (and send ACK receipt to user)
-            },
-            Ok(DatagramHeader::Nack) => {
-                debug!("Received NACK");
-                // TODO: Resend NACK:ed datagrams (by setting the next resend time to current time so they will be sent in next update)
-            },
-            Ok(DatagramHeader::Packet {is_packet_pair, is_continuous_send, needs_data_arrival_rate, datagram_number }) => {
-                debug!("Received a datagram of packets. is_packet_pair={}, is_continuous_send={}, needs_data_arrival_rate={}, datagram_number={}", 
-                is_packet_pair, is_continuous_send, needs_data_arrival_rate, datagram_number);
-                self.outgoing_nacks.handle_datagram(datagram_number);
-                self.outgoing_acks.insert(datagram_number, time);
-
-                match self.process_incoming_packets(reader, time) {
-                    Ok(packets) => {
-                        for packet in packets.into_iter() {
-                            // TODO: Filter out connection related packets and act on them
-                            communicator.send_event(PeerEvent::Packet(packet));
-                        }
-                    }
-                    Err(err) => error!("Error reading packets: {:?}", err),
+        if let Some(packets) = self.reliability_layer.process_incoming_datagram(payload, time, communicator) {
+            for packet in packets.into_iter() {
+                if !self.handle_connection_related_packet(&packet, communicator, time) {
+                    communicator.send_event(PeerEvent::Packet(packet));
                 }
-            },
-            Err(err) => error!("Error parsing datagram header: {:?}", err),
-        };
-    }
-
-    /// Processes all incoming packets contained in a a datagram after the datagram header
-    /// has been read.
-    fn process_incoming_packets(&mut self, mut reader: DataReader, time: Instant) -> Result<Vec<Packet>> {
-        let mut packets = Vec::new();
-        while reader.has_more() {
-            let mut packet = InternalPacket::read(time, &mut reader)?;
-            debug!("Received a packet:\n{:?}", packet);
-            if let InternalReliability::Reliable(reliable_message_number) = packet.reliability() {
-                debug!("Packet is reliable with message number {}", reliable_message_number);
-                if self.reliable_message_number_handler.should_discard_packet(reliable_message_number) {
-                    debug!("Dropping packet with duplicate message number: {}", reliable_message_number);
-                    continue;
-                }
-            }
-
-            if let Some(header) = packet.split_packet_header() {
-                if let Some(defragmented_packet) = self.split_packet_handler.handle_split_packet(header, packet) {
-                    packet = defragmented_packet;
-                } else {
-                    continue;
-                }
-            }
-
-            match packet.ordering() {
-                InternalOrdering::None => {
-                    debug!("Packet is Unordered");
-                    packets.push(Packet::new(self.remote_addr, self.remote_guid, packet.into_payload()));
-                },
-                InternalOrdering::Ordered { ordering_index, ordering_channel_index } => {
-                    debug!("Packed is Ordered. ord_idx={}, ord_ch_idx={}", ordering_index, ordering_channel_index);
-                    if let Some(ordering_channel) = self.ordering_system.get_channel(ordering_channel_index) {
-                        let addr = self.remote_addr;
-                        let guid = self.remote_guid;
-                        packets.extend(ordering_channel
-                            .process_incoming(None, ordering_index, packet.into_payload())
-                            .into_iter()
-                            .chain(ordering_channel.iter_mut())
-                            .map(|payload| Packet::new(addr, guid, payload))
-                        );
-                    } else {
-                        error!("Invalid ordering channel: {}", ordering_channel_index);
-                    }
-                },
-                InternalOrdering::Sequenced { sequencing_index, ordering_index, ordering_channel_index } => {
-                    debug!("Packet id Reliable Sequenced. seq_idx={}, ord_idx={}, ord_ch_idx={}", sequencing_index, ordering_index, ordering_channel_index);
-                    if let Some(ordering_channel) = self.ordering_system.get_channel(ordering_channel_index) {
-                        if let Some(payload) = ordering_channel.process_incoming(Some(sequencing_index), ordering_index, packet.into_payload()) {
-                            packets.push(Packet::new(self.remote_addr, self.remote_guid, payload));
-                        }
-                    } else {
-                        error!("Invalid ordering channel: {}", ordering_channel_index);
-                    }
-                },
             }
         }
-        Ok(packets)
+    }
+
+    /// Handles connection related incoming packets.
+    /// Returns true if the packet is handled and should not be delivered to the user.
+    fn handle_connection_related_packet(&mut self, packet: &Packet, communicator: &mut Communicator<impl DatagramSocket>, time: Instant) -> bool {
+        if packet.payload().len() == 0 {
+            return true;
+        }
+        if self.state == ConnectionState::UnverifiedSender {
+            match MessageId::try_from(packet.payload()[0]) {
+                Ok(MessageId::ConnectionRequest) => self.handle_connection_request(packet.payload(), communicator, time),
+                _ => {}, // TODO: Close the connection and ban the user temporarily for sending garbage
+            }
+        } else {
+            match MessageId::try_from(packet.payload()[0]) {
+                Ok(MessageId::ConnectionRequest) => {}, // TODO: Implement
+                Ok(MessageId::NewIncomingConnection) => {}, // TODO: Implement
+                Ok(MessageId::ConnectedPong) => {}, // TODO: Implement
+                Ok(MessageId::ConnectedPing) => {}, // TODO: Implement
+                Ok(MessageId::DisconnectionNotification) => {}, // TODO: Implement
+                Ok(MessageId::DetectLostConnections) => {}, // TODO: Implement
+                Ok(MessageId::InvalidPassword) => {}, // TODO: Implement
+                Ok(MessageId::ConnectionRequestAccepted) => {}, // TODO: Implement
+                _ => return false,
+            }
+        }
+        true
+    }
+
+    fn handle_connection_request(&mut self, payload: &[u8], communicator: &mut Communicator<impl DatagramSocket>, time: Instant) {
+        let mut reader = DataReader::new(payload);
+        match ConnectionRequestMessage::read_message(&mut reader) {
+            Ok(connection_request) => {
+                debug!("Received a connection request: {:?}", connection_request);
+                // TODO: Check proof, client key and password
+                self.state = ConnectionState::HandlingConnectionRequest;
+                let message = ConnectionRequestAcceptedMessage {
+                    client_addr: self.remote_addr,
+                    client_index: 0, // TODO: Fix this dummy value by increasing a counter for each created connection.
+                    ip_list: communicator.get_addr_list(),
+                    client_time: connection_request.time,
+                    server_time: time.saturating_duration_since(self.peer_creation_time).as_millis() as u64,
+                };
+                self.send_connected_message(&message);
+            },
+            Err(err) => error!("Failed reading connection request message: {}", err),
+        }
+    }
+
+    fn send_connected_message(&mut self, message: &dyn MessageWrite) {
+        let mut payload = Vec::new();
+        match message.write_message(&mut payload) {
+            Ok(()) => self.reliability_layer.send_packet(Priority::Highest, Reliability::Reliable, Ordering::Ordered(0), None, payload.into_boxed_slice()),
+            Err(err) => error!("Failed writing message to buffer: {:?}", err),
+        }
     }
 
     /// Returns true if this connection should be dropped.
     pub fn should_drop(&self, time: Instant, communicator: &mut Communicator<impl DatagramSocket>) -> bool {
-        // TODO: Add more conditions and in some scenarios send a packet to the remote peer.
-        if self.state == ConnectionState::UnverifiedSender && time.saturating_duration_since(self.connection_time).as_millis() > communicator.config().incoming_connection_timeout_in_ms {
+        // TODO: Add more conditions and in some scenarios notify the user that the connection was closed.
+        if (self.state == ConnectionState::UnverifiedSender || self.state == ConnectionState::HandlingConnectionRequest) &&
+            time.saturating_duration_since(self.connection_time).as_millis() > communicator.config().incoming_connection_timeout_in_ms {
             debug!("Dropping connection from {} with guid {} because of connection timeout.", self.remote_addr, self.remote_guid);
             true
         } else {
@@ -246,5 +142,6 @@ impl Connection {
 #[derive(Copy, Clone, PartialEq)]
 pub enum ConnectionState {
     UnverifiedSender,
+    HandlingConnectionRequest,
     Connected,
 }

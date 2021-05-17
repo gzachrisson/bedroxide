@@ -54,7 +54,7 @@ impl OutgoingAcknowledgements {
 #[cfg(test)]
 mod tests {
     use std::time::{Duration, Instant};
-    use crate::{constants::TIME_BEFORE_SENDING_ACKS, DatagramSequenceNumber};
+    use crate::{constants::TIME_BEFORE_SENDING_ACKS, number::DatagramSequenceNumber};
     use super::{DatagramRange, OutgoingAcknowledgements};
 
     #[test]

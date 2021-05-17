@@ -15,3 +15,5 @@ pub const TIME_BEFORE_SENDING_ACKS: Duration = Duration::from_millis(10);
 pub const MAX_ACK_DATAGRAM_HEADER_SIZE: usize = 1 + 4; // Bitflags (u8) + AS (f32)
 
 pub const MAX_NACK_DATAGRAM_HEADER_SIZE: usize = 1; // Bitflags (u8)
+
+pub const MAX_NUMBER_OF_INTERNAL_IDS: usize = 10;

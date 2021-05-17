@@ -171,7 +171,7 @@ impl<'a> DataRead for DataReader<'a> {
     }
 }
 
-pub trait OfflineMessageRead: Sized {
+pub trait MessageRead: Sized {
     /// Reads a message including the message identifier.
     /// 
     /// This function assumes security is disabled on our peer, or

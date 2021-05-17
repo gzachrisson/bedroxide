@@ -1,20 +1,21 @@
-use std::{convert::TryFrom, net::SocketAddr};
+use std::{convert::TryFrom, net::{IpAddr, Ipv4Addr, SocketAddr}};
 
 use crate::{
-    constants::OFFLINE_MESSAGE_ID,
+    constants::{MAX_NUMBER_OF_INTERNAL_IDS, OFFLINE_MESSAGE_ID},
     error::{Error, ReadError, Result},
     message_ids::MessageId,
-    reader::{DataRead, OfflineMessageRead},
-    writer::{DataWrite, OfflineMessageWrite},
+    reader::{DataRead, MessageRead},
+    writer::{DataWrite, MessageWrite},
 };
 
+#[derive(Debug)]
 pub struct UnconnectedPingMessage {
     pub message_id: MessageId,
     pub time: u64,
     pub client_guid: u64,
 }
 
-impl OfflineMessageRead for UnconnectedPingMessage {
+impl MessageRead for UnconnectedPingMessage {
     fn read_message(reader: &mut dyn DataRead) -> Result<Self> {
         let message_id_byte = reader.read_u8()?;
         let message_id = match MessageId::try_from(message_id_byte) {
@@ -29,7 +30,7 @@ impl OfflineMessageRead for UnconnectedPingMessage {
     }
 }
 
-impl OfflineMessageWrite for UnconnectedPingMessage {
+impl MessageWrite for UnconnectedPingMessage {
     fn write_message(&self, writer: &mut dyn DataWrite) -> Result<()> {
         writer.write_u8(self.message_id.into())?;
         writer.write_u64_be(self.time)?;
@@ -39,6 +40,7 @@ impl OfflineMessageWrite for UnconnectedPingMessage {
     }
 }
 
+#[derive(Debug)]
 pub struct UnconnectedPongMessage {
     pub guid: u64,
     pub time: u64,
@@ -55,7 +57,7 @@ impl UnconnectedPongMessage {
     }
 }
 
-impl OfflineMessageRead for UnconnectedPongMessage {
+impl MessageRead for UnconnectedPongMessage {
     fn read_message(reader: &mut dyn DataRead) -> Result<Self> {
         reader.read_u8_and_compare(MessageId::UnconnectedPong.into())?;
         let time = reader.read_u64_be()?;
@@ -67,7 +69,7 @@ impl OfflineMessageRead for UnconnectedPongMessage {
     }
 }
 
-impl OfflineMessageWrite for UnconnectedPongMessage {
+impl MessageWrite for UnconnectedPongMessage {
     fn write_message(&self, writer: &mut dyn DataWrite) -> Result<()> {
         writer.write_u8(MessageId::UnconnectedPong.into())?;
         writer.write_u64_be(self.time)?;
@@ -78,12 +80,13 @@ impl OfflineMessageWrite for UnconnectedPongMessage {
     }
 }
 
+#[derive(Debug)]
 pub struct OpenConnectionRequest1Message {
     pub protocol_version: u8,
     pub padding_length: u16,
 }
 
-impl OfflineMessageRead for OpenConnectionRequest1Message {
+impl MessageRead for OpenConnectionRequest1Message {
     fn read_message(reader: &mut dyn DataRead) -> Result<Self> {
         reader.read_u8_and_compare(MessageId::OpenConnectionRequest1.into())?;
         reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID).map_err(|_| ReadError::InvalidOfflineMessageId)?;
@@ -93,7 +96,7 @@ impl OfflineMessageRead for OpenConnectionRequest1Message {
     }
 }
 
-impl OfflineMessageWrite for OpenConnectionRequest1Message {
+impl MessageWrite for OpenConnectionRequest1Message {
     fn write_message(&self, writer: &mut dyn DataWrite) -> Result<()> {
         writer.write_u8(MessageId::OpenConnectionRequest1.into())?;
         writer.write_bytes(&OFFLINE_MESSAGE_ID)?;
@@ -103,6 +106,7 @@ impl OfflineMessageWrite for OpenConnectionRequest1Message {
     }
 }
 
+#[derive(Debug)]
 pub struct OpenConnectionReply1Message {
     pub guid: u64,
     pub cookie_and_public_key: Option<(u32, [u8;64])>,
@@ -119,7 +123,7 @@ impl OpenConnectionReply1Message {
     }
 }
 
-impl OfflineMessageRead for OpenConnectionReply1Message {
+impl MessageRead for OpenConnectionReply1Message {
     fn read_message(reader: &mut dyn DataRead) -> Result<Self> {
         reader.read_u8_and_compare(MessageId::OpenConnectionReply1.into())?;
         reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID).map_err(|_| ReadError::InvalidOfflineMessageId)?;
@@ -143,7 +147,7 @@ impl OfflineMessageRead for OpenConnectionReply1Message {
     }
 }
 
-impl OfflineMessageWrite for OpenConnectionReply1Message {
+impl MessageWrite for OpenConnectionReply1Message {
     fn write_message(&self, writer: &mut dyn DataWrite) -> Result<()> {
         writer.write_u8(MessageId::OpenConnectionReply1.into())?;
         writer.write_bytes(&OFFLINE_MESSAGE_ID)?;
@@ -160,6 +164,7 @@ impl OfflineMessageWrite for OpenConnectionReply1Message {
     }
 }
 
+#[derive(Debug)]
 pub struct OpenConnectionRequest2Message {
     pub cookie_and_challenge: Option<(u32, Option<[u8; 64]>)>,
     pub binding_address: SocketAddr,
@@ -167,7 +172,7 @@ pub struct OpenConnectionRequest2Message {
     pub guid: u64,
 }
 
-impl OfflineMessageRead for OpenConnectionRequest2Message {
+impl MessageRead for OpenConnectionRequest2Message {
     fn read_message(reader: &mut dyn DataRead) -> Result<Self> {
         reader.read_u8_and_compare(MessageId::OpenConnectionRequest2.into())?;
         reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID).map_err(|_| ReadError::InvalidOfflineMessageId)?;
@@ -206,7 +211,7 @@ impl OfflineMessageRead for OpenConnectionRequest2Message {
     }    
 }
 
-impl OfflineMessageWrite for OpenConnectionRequest2Message {
+impl MessageWrite for OpenConnectionRequest2Message {
     fn write_message(&self, writer: &mut dyn DataWrite) -> Result<()> {
         writer.write_u8(MessageId::OpenConnectionRequest2.into())?;
         writer.write_bytes(&OFFLINE_MESSAGE_ID)?;
@@ -226,6 +231,7 @@ impl OfflineMessageWrite for OpenConnectionRequest2Message {
     }
 }
 
+#[derive(Debug)]
 pub struct OpenConnectionReply2Message {
     pub guid: u64,
     pub client_address: SocketAddr,    
@@ -244,7 +250,7 @@ impl OpenConnectionReply2Message {
     }
 }
 
-impl OfflineMessageRead for OpenConnectionReply2Message {
+impl MessageRead for OpenConnectionReply2Message {
     fn read_message(reader: &mut dyn DataRead) -> Result<Self> {
         reader.read_u8_and_compare(MessageId::OpenConnectionReply2.into())?;
         reader.read_bytes_and_compare(&OFFLINE_MESSAGE_ID).map_err(|_| ReadError::InvalidOfflineMessageId)?;
@@ -269,7 +275,7 @@ impl OfflineMessageRead for OpenConnectionReply2Message {
     }
 }
 
-impl OfflineMessageWrite for OpenConnectionReply2Message {
+impl MessageWrite for OpenConnectionReply2Message {
     fn write_message(&self, writer: &mut dyn DataWrite) -> Result<()> {
         writer.write_u8(MessageId::OpenConnectionReply2.into())?;
         writer.write_bytes(&OFFLINE_MESSAGE_ID)?;
@@ -286,6 +292,102 @@ impl OfflineMessageWrite for OpenConnectionReply2Message {
     }
 }
 
+#[derive(Debug)]
+pub struct ConnectionRequestMessage {
+    pub guid: u64,
+    pub time: u64,
+    pub proof_and_client_key: Option<([u8; 32], Option<[u8;160]>)>,
+    pub password: Box<[u8]>,
+}
+
+impl MessageRead for ConnectionRequestMessage {
+    fn read_message(reader: &mut dyn DataRead) -> Result<Self> {
+        reader.read_u8_and_compare(MessageId::ConnectionRequest.into())?;
+        let guid = reader.read_u64_be()?;
+        let time = reader.read_u64_be()?;
+        let do_security = reader.read_u8()?;
+        let proof_and_client_key = if do_security == 0x01 {
+            let mut proof = [0u8; 32];
+            reader.read_bytes(&mut proof)?;
+            let do_client_key = reader.read_u8()?;
+            let client_key = if do_client_key == 0x01 {
+                let mut client_key = [0u8; 160];
+                reader.read_bytes(&mut client_key)?;
+                Some(client_key)
+            } else {
+                None
+            };
+            Some((proof, client_key))
+        } else {
+            None
+        };        
+        let mut password = Vec::new();
+        reader.read_bytes_to_end(&mut password)?;
+        Ok(ConnectionRequestMessage { guid, time, proof_and_client_key, password: password.into_boxed_slice() })
+    }
+}
+
+impl MessageWrite for ConnectionRequestMessage {
+    fn write_message(&self, writer: &mut dyn DataWrite) -> Result<()> {
+        writer.write_u8(MessageId::ConnectionRequest.into())?;
+        writer.write_u64_be(self.guid)?;
+        writer.write_u64_be(self.time)?;
+        if let Some(proof_and_client_key) = self.proof_and_client_key {
+            writer.write_u8(0x01)?; // Do security = true
+            writer.write_bytes(&proof_and_client_key.0)?; // Proof
+            if let Some(client_key) = proof_and_client_key.1 {
+                writer.write_u8(0x01)?; // Do client key = true
+                writer.write_bytes(&client_key)?;
+            } else {
+                writer.write_u8(0x00)?; // Do client key = false
+            }
+        } else {
+            writer.write_u8(0x00)?; // Do security = false
+        }
+        writer.write_bytes(&self.password)?;
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct ConnectionRequestAcceptedMessage {
+    pub client_addr: SocketAddr,
+    pub client_index: u16,
+    pub ip_list: [SocketAddr; MAX_NUMBER_OF_INTERNAL_IDS],
+    pub client_time: u64,
+    pub server_time: u64,
+}
+
+impl MessageRead for ConnectionRequestAcceptedMessage {
+    fn read_message(reader: &mut dyn DataRead) -> Result<Self> {
+        reader.read_u8_and_compare(MessageId::ConnectionRequestAccepted.into())?;
+        let client_addr = reader.read_socket_addr()?;
+        let client_index = reader.read_u16_be()?;
+        let mut ip_list = [SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0); MAX_NUMBER_OF_INTERNAL_IDS];
+        for ip in ip_list.iter_mut() {
+            *ip = reader.read_socket_addr()?;
+        }
+        let client_time = reader.read_u64_be()?;
+        let server_time = reader.read_u64_be()?;
+        Ok(ConnectionRequestAcceptedMessage { client_addr, client_index, ip_list, client_time, server_time })
+    }
+}
+
+impl MessageWrite for ConnectionRequestAcceptedMessage {
+    fn write_message(&self, writer: &mut dyn DataWrite) -> Result<()> {
+        writer.write_u8(MessageId::ConnectionRequestAccepted.into())?;
+        writer.write_socket_addr(&self.client_addr)?;
+        writer.write_u16_be(self.client_index)?;
+        for ip in self.ip_list.iter() {
+            writer.write_socket_addr(ip)?;
+        }
+        writer.write_u64_be(self.client_time)?;
+        writer.write_u64_be(self.server_time)?;
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
 pub struct IncompatibleProtocolVersionMessage {
     pub protocol_version: u8,
     pub guid: u64,
@@ -300,7 +402,7 @@ impl IncompatibleProtocolVersionMessage {
     }
 }
 
-impl OfflineMessageRead for IncompatibleProtocolVersionMessage {
+impl MessageRead for IncompatibleProtocolVersionMessage {
     fn read_message(reader: &mut dyn DataRead) -> Result<Self> {
         reader.read_u8_and_compare(MessageId::IncompatibleProtocolVersion.into())?;
         let protocol_version = reader.read_u8()?;
@@ -310,7 +412,7 @@ impl OfflineMessageRead for IncompatibleProtocolVersionMessage {
     }
 }
 
-impl OfflineMessageWrite for IncompatibleProtocolVersionMessage {
+impl MessageWrite for IncompatibleProtocolVersionMessage {
     fn write_message(&self, writer: &mut dyn DataWrite) -> Result<()> {
         writer.write_u8(MessageId::IncompatibleProtocolVersion.into())?;
         writer.write_u8(self.protocol_version)?;
@@ -323,6 +425,7 @@ impl OfflineMessageWrite for IncompatibleProtocolVersionMessage {
 /// Error message used by `MessageId::NoFreeIncomingConnections`,
 /// `MessageId::ConnectionBanned`, `MessageId::AlreadyConnected` and
 /// `MessageId::IpRecentlyConnected`.
+#[derive(Debug)]
 pub struct ConnectErrorMessage {
     pub message_id: MessageId,
     pub guid: u64,
@@ -337,7 +440,7 @@ impl ConnectErrorMessage {
     }
 }
 
-impl OfflineMessageRead for ConnectErrorMessage {
+impl MessageRead for ConnectErrorMessage {
     fn read_message(reader: &mut dyn DataRead) -> Result<Self> {
         let message_id_byte = reader.read_u8()?;
         let message_id = match MessageId::try_from(message_id_byte) {
@@ -353,7 +456,7 @@ impl OfflineMessageRead for ConnectErrorMessage {
     }
 }
 
-impl OfflineMessageWrite for ConnectErrorMessage {
+impl MessageWrite for ConnectErrorMessage {
     fn write_message(&self, writer: &mut dyn DataWrite) -> Result<()> {
         writer.write_u8(self.message_id.into())?;
         writer.write_bytes(&OFFLINE_MESSAGE_ID)?;
@@ -379,8 +482,8 @@ mod tests {
             OpenConnectionRequest1Message,
             OpenConnectionRequest2Message,
         },
-        reader::{OfflineMessageRead, DataReader},
-        writer::OfflineMessageWrite,
+        reader::{MessageRead, DataReader},
+        writer::MessageWrite,
     };
 
     #[test]

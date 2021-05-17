@@ -23,20 +23,22 @@ use crate::{
         UnconnectedPingMessage,
         UnconnectedPongMessage,
     },
-    reader::{OfflineMessageRead, DataReader},
+    reader::{MessageRead, DataReader},
     socket::DatagramSocket,
     utils,
-    writer::OfflineMessageWrite,
+    writer::MessageWrite,
 };
 
 pub struct  OfflinePacketHandler {   
     ping_response: Vec<u8>,
+    peer_creation_time: Instant,
 }
 
 impl OfflinePacketHandler {
     pub fn new() -> OfflinePacketHandler {
         OfflinePacketHandler {
             ping_response: Vec::new(),
+            peer_creation_time: Instant::now(),
         }
     }
 
@@ -183,7 +185,7 @@ impl OfflinePacketHandler {
                 // TODO: Check if this IP has connected the last 100 ms. If so, send MessageId::IpRecentlyConnected.
                 // TODO: Check that the MTU is within our accepted range
 
-                let conn = Connection::incoming(time, addr, request2.guid, request2.mtu);
+                let conn = Connection::incoming(time, self.peer_creation_time, addr, request2.guid, request2.mtu);
                 connections.insert(addr, conn);
 
                 // TODO: Add support for security and supply challenge answer.
@@ -207,7 +209,7 @@ impl OfflinePacketHandler {
         number_of_incoming_connections < config.max_incoming_connections
     }
 
-    fn send_message(message: &dyn OfflineMessageWrite, dest: SocketAddr, communicator: &mut Communicator<impl DatagramSocket>) {
+    fn send_message(message: &dyn MessageWrite, dest: SocketAddr, communicator: &mut Communicator<impl DatagramSocket>) {
         let mut payload = Vec::new();
         match message.write_message(&mut payload) {
             Ok(()) => {
@@ -233,9 +235,9 @@ mod tests {
         message_ids::MessageId,
         messages::{ConnectErrorMessage, OpenConnectionRequest2Message, OpenConnectionReply2Message},
         offline_packet_handler::OfflinePacketHandler,
-        reader::{OfflineMessageRead, DataReader},
+        reader::{MessageRead, DataReader},
         socket::FakeDatagramSocket,
-        writer::OfflineMessageWrite,
+        writer::MessageWrite,
     };
 
     const OWN_GUID: u64 = 0xFEDCBA9876453210;
@@ -248,17 +250,17 @@ mod tests {
     }
 
     fn create_test_setup_with_config(config: Config) -> (OfflinePacketHandler, Communicator<FakeDatagramSocket>, HashMap<SocketAddr, Connection>, Receiver<(Vec<u8>, SocketAddr)>, SocketAddr, SocketAddr) {
-        let socket = FakeDatagramSocket::new();
+        let own_addr = "127.0.0.1:19132".parse::<SocketAddr>().expect("Could not create address");
+        let socket = FakeDatagramSocket::new(own_addr);
         let datagram_receiver = socket.get_datagram_receiver();
         let (event_sender, _event_receiver) = unbounded();
         let communicator = Communicator::new(socket, config, event_sender);
         let connections = HashMap::<SocketAddr, Connection>::new();
         let remote_addr = "192.168.1.1:19132".parse::<SocketAddr>().expect("Could not create address");
-        let own_addr = "127.0.0.1:19132".parse::<SocketAddr>().expect("Could not create address");
         (OfflinePacketHandler::new(), communicator, connections, datagram_receiver, remote_addr, own_addr)
     }    
 
-    fn receive_datagram<M: OfflineMessageRead>(datagram_receiver: &mut Receiver<(Vec<u8>, SocketAddr)>) -> (M, SocketAddr) {
+    fn receive_datagram<M: MessageRead>(datagram_receiver: &mut Receiver<(Vec<u8>, SocketAddr)>) -> (M, SocketAddr) {
         let (payload, addr) = datagram_receiver.try_recv().expect("Datagram not received");
         let mut reader = DataReader::new(&payload);
         let message = M::read_message(&mut reader).expect("Could not parse message");
@@ -277,7 +279,7 @@ mod tests {
             guid: REMOTE_GUID,
         };
         message.write_message(&mut payload).expect("Could not write message");
-        connections.insert(remote_addr, Connection::incoming(Instant::now(), remote_addr, REMOTE_GUID, 1024));
+        connections.insert(remote_addr, Connection::incoming(Instant::now(), Instant::now(), remote_addr, REMOTE_GUID, 1024));
 
         // Act
         let handled = handler.process_offline_packet(Instant::now(), remote_addr, &payload, &mut communicator, &mut connections);
@@ -305,7 +307,7 @@ mod tests {
         };
         message.write_message(&mut payload).expect("Could not write message");
         let other_addr = "192.168.1.99:19132".parse::<SocketAddr>().expect("Could not create address");
-        connections.insert(other_addr, Connection::incoming(Instant::now(), remote_addr, REMOTE_GUID, 1024));
+        connections.insert(other_addr, Connection::incoming(Instant::now(), Instant::now(), remote_addr, REMOTE_GUID, 1024));
 
         // Act
         let handled = handler.process_offline_packet(Instant::now(), remote_addr, &payload, &mut communicator, &mut connections);
@@ -331,7 +333,7 @@ mod tests {
         };
         message.write_message(&mut payload).expect("Could not write message");
         let other_guid: u64 = 0x1111111111111111;
-        connections.insert(remote_addr, Connection::incoming(Instant::now(), remote_addr, other_guid, 1024));
+        connections.insert(remote_addr, Connection::incoming(Instant::now(), Instant::now(), remote_addr, other_guid, 1024));
 
         // Act
         let handled = handler.process_offline_packet(Instant::now(), remote_addr, &payload, &mut communicator, &mut connections);
@@ -361,7 +363,7 @@ mod tests {
         message.write_message(&mut payload).expect("Could not write message");
         let other_guid: u64 = 0x1111111111111111;
         let other_addr = "192.168.1.99:19132".parse::<SocketAddr>().expect("Could not create address");
-        let mut connection = Connection::incoming(Instant::now(), remote_addr, other_guid, 1024);
+        let mut connection = Connection::incoming(Instant::now(), Instant::now(), remote_addr, other_guid, 1024);
         connection.state = ConnectionState::Connected;
         connections.insert(other_addr, connection);
 

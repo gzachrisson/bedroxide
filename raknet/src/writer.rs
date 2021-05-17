@@ -3,7 +3,7 @@ use std::{
     net::SocketAddr,
 };
 
-use crate::{Result, u24, WriteError};
+use crate::{number::u24, Result, WriteError};
 
 pub trait DataWrite {
     fn write_u8(&mut self, b: u8) -> Result<usize>;
@@ -138,7 +138,7 @@ impl<T> DataWrite for T where T: Write {
     }    
 }
 
-pub trait OfflineMessageWrite {
+pub trait MessageWrite {
     /// Writes a message including the message identifier.
     fn write_message(&self, writer: &mut dyn DataWrite) -> Result<()>;
 }

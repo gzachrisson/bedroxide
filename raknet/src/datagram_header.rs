@@ -1,6 +1,6 @@
 use std::option::Option;
 
-use crate::{DataRead, DataWrite, ReadError, Result, DatagramSequenceNumber, u24};
+use crate::{DataRead, DataWrite, ReadError, Result, number::{DatagramSequenceNumber, u24}};
 
 #[derive(Debug, PartialEq)]
 pub enum DatagramHeader {    
@@ -73,9 +73,8 @@ impl DatagramHeader {
 
 #[cfg(test)]
 mod tests {
-    use std::{convert::TryFrom, matches};
-    
-    use crate::{datagram_header::DatagramHeader, DatagramSequenceNumber, reader::DataReader};
+    use std::{convert::TryFrom, matches};   
+    use crate::{datagram_header::DatagramHeader, number::DatagramSequenceNumber, reader::DataReader};
 
     #[test]
     fn read_ack_header_with_data_arrival_rate() {

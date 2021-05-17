@@ -40,7 +40,7 @@ impl DatagramHeap {
 
 #[cfg(test)]
 mod tests {
-    use crate::{datagram_range::DatagramRange, DatagramSequenceNumber};
+    use crate::{datagram_range::DatagramRange, number::DatagramSequenceNumber};
     use super::DatagramHeap;
 
     #[test]

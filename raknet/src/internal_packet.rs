@@ -1,10 +1,11 @@
 use std::time::Instant;
 
 use crate::{
-    error::ReadError,
+    error::{ReadError, WriteError},
     number::{MessageNumber, OrderingChannelIndex, OrderingIndex, SequencingIndex},
-    DataRead,
-    Result
+    reader::DataRead,
+    Result,
+    writer::DataWrite,
 };
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -28,6 +29,15 @@ pub struct SplitPacketHeader {
 }
 
 impl SplitPacketHeader {
+    #[allow(dead_code)]
+    pub fn new(split_packet_count: u32, split_packet_id: u16, split_packet_index: u32) -> Self {
+        SplitPacketHeader {
+            split_packet_count,
+            split_packet_id,
+            split_packet_index,
+        }
+    }
+
     pub fn read(reader: &mut impl DataRead) -> Result<Self> {
         let header = SplitPacketHeader {
             split_packet_count: reader.read_u32_be()?,
@@ -35,6 +45,14 @@ impl SplitPacketHeader {
             split_packet_index: reader.read_u32_be()?,
         };
         Ok(header)
+    }
+
+    #[allow(dead_code)]
+    pub fn write(&self, writer: &mut impl DataWrite) -> Result<()> {
+        writer.write_u32_be(self.split_packet_count)?;
+        writer.write_u16_be(self.split_packet_id)?;
+        writer.write_u32_be(self.split_packet_index)?;
+        Ok(())
     }
 
     pub fn split_packet_count(&self) -> u32 {
@@ -60,7 +78,18 @@ pub struct InternalPacket {
 }
 
 impl InternalPacket {
-    pub fn read(creation_time: Instant, reader: &mut impl DataRead) -> Result<Self> {        
+    #[allow(dead_code)]
+    pub fn new(creation_time: Instant, reliability: InternalReliability, ordering: InternalOrdering, split_packet_header: Option<SplitPacketHeader>, payload: Box<[u8]>) -> Self {
+        InternalPacket {
+            creation_time,
+            reliability,
+            ordering,
+            split_packet_header,
+            payload,
+        }
+    }
+
+    pub fn read(creation_time: Instant, reader: &mut impl DataRead) -> Result<Self> { 
         let flags = reader.read_u8()?;
         let payload_bit_length = reader.read_u16_be()?;
         let payload_byte_length = (payload_bit_length + 8 - 1) / 8;
@@ -118,6 +147,50 @@ impl InternalPacket {
         })
     }
 
+    #[allow(dead_code)]
+    pub fn write(&self, writer: &mut impl DataWrite) -> Result<()> {
+        let mut flags: u8 = match (self.reliability, self.ordering) {
+            (InternalReliability::Unreliable, InternalOrdering::None) => 0 << 5,
+            (InternalReliability::Unreliable, InternalOrdering::Sequenced {sequencing_index: _, ordering_index: _, ordering_channel_index: _}) => 1 << 5,
+            (InternalReliability::Reliable(_), InternalOrdering::None) => 2 << 5,
+            (InternalReliability::Reliable(_), InternalOrdering::Ordered { ordering_index: _, ordering_channel_index: _ }) => 3 << 5,
+            (InternalReliability::Reliable(_), InternalOrdering::Sequenced {sequencing_index: _, ordering_index: _, ordering_channel_index: _}) => 4 << 5,
+            _ => return Err(WriteError::InvalidHeader.into()),
+        };
+        if let Some(_) = self.split_packet_header {
+            flags = flags | 0b000_1_0000;
+        }
+        writer.write_u8(flags)?;
+
+        if self.payload.len() > (u16::MAX / 8) as usize {
+            return Err(WriteError::PayloadTooLarge.into());
+        }
+        writer.write_u16_be((self.payload.len() * 8) as u16)?;
+
+        if let InternalReliability::Reliable(reliable_message_number) = self.reliability {
+            writer.write_u24(reliable_message_number)?;
+        }
+        match self.ordering {
+            InternalOrdering::Sequenced {sequencing_index, ordering_index, ordering_channel_index } => {
+                writer.write_u24(sequencing_index)?;
+                writer.write_u24(ordering_index)?;
+                writer.write_u8(ordering_channel_index)?;
+            },
+            InternalOrdering::Ordered { ordering_index, ordering_channel_index } => {
+                writer.write_u24(ordering_index)?;
+                writer.write_u8(ordering_channel_index)?;
+            },
+            _ => {},
+        }
+
+        if let Some(split_packet_header) = self.split_packet_header {
+            split_packet_header.write(writer)?;
+        }
+
+        writer.write_bytes(&self.payload)?;
+        Ok(())
+    }
+
     pub fn reliability(&self) -> InternalReliability {
         self.reliability
     }
@@ -144,7 +217,7 @@ impl InternalPacket {
 mod tests {
     use std::{convert::TryFrom, time::Instant};
     use crate::{number::{MessageNumber, OrderingIndex, SequencingIndex}, reader::DataReader};
-    use super::{InternalPacket, InternalOrdering, InternalReliability};
+    use super::{InternalPacket, InternalOrdering, InternalReliability, SplitPacketHeader};
 
     #[test]
     fn read_unreliable_packet() {
@@ -431,5 +504,279 @@ mod tests {
                 header.split_packet_index() == 0x01234567
         ));
         assert_eq!(packet.payload(), &[0x12, 0x34]);
-    }       
+    }
+
+    #[test]
+    fn write_unreliable_packet() {
+        // Arrange
+        let packet = InternalPacket::new(Instant::now(), InternalReliability::Unreliable, InternalOrdering::None, None, vec![0x12, 0x34].into_boxed_slice());
+        let mut buf = Vec::new();
+
+        // Act
+        packet.write(&mut buf).expect("Could not write packet");
+
+        // Assert
+        assert_eq!(buf, vec![
+            0b000_0_0000, // Bitflags: bit 7-5: reliability=0=Unreliable, bit 4: has_split_packet=0=false
+            0x00, 0x10, // Data bit length: 0x0010=16 bits=2 bytes
+            0x12, 0x34, // Data [0x12, 0x34]
+        ]);
+    }
+
+    #[test]
+    fn write_unreliable_split_packet() {
+        // Arrange
+        let packet = InternalPacket::new(
+            Instant::now(),
+            InternalReliability::Unreliable,
+            InternalOrdering::None,
+            Some(SplitPacketHeader::new(0x11223344, 0x1357, 0x01234567)),
+            vec![0x12, 0x34].into_boxed_slice());
+        let mut buf = Vec::new();
+
+        // Act
+        packet.write(&mut buf).expect("Could not write packet");
+
+        // Assert
+        assert_eq!(buf, vec![
+            0b000_1_0000, // Bitflags: bit 7-5: reliability=0=Unreliable, bit 4: has_split_packet=1=true
+            0x00, 0x10, // Data bit length: 0x0010=16 bits=2 bytes
+            0x11, 0x22, 0x33, 0x44, // Split packet count: 0x11223344
+            0x13, 0x57, // Split packet ID: 0x1357
+            0x01, 0x23, 0x45, 0x67, // Split packet index: 0x01234567 
+            0x12, 0x34, // Data [0x12, 0x34]
+        ]);
+    }    
+
+    #[test]
+    fn write_unreliable_sequenced_packet() {
+        // Arrange
+        let packet = InternalPacket::new(
+            Instant::now(),
+            InternalReliability::Unreliable,
+            InternalOrdering::Sequenced {
+                sequencing_index: SequencingIndex::from_masked_u32(0x123456),
+                ordering_index: OrderingIndex::from_masked_u32(0x112233),
+                ordering_channel_index: 0x05
+            },
+            None,
+            vec![0x12, 0x34].into_boxed_slice());
+        let mut buf = Vec::new();
+
+        // Act
+        packet.write(&mut buf).expect("Could not write packet");
+
+        // Assert
+        assert_eq!(buf, vec![
+            0b001_0_0000, // Bitflags: bit 7-5: reliability=1=Unreliable Sequenced, bit 4: has_split_packet=0=false
+            0x00, 0x10, // Data bit length: 0x0010=16 bits=2 bytes
+            0x56, 0x34, 0x12, // Sequencing index: 0x123456
+            0x33, 0x22, 0x11, // Ordering index: 0x112233
+            0x05, // Ordering channel: 5
+            0x12, 0x34, // Data [0x12, 0x34]
+        ]);
+    }
+
+    #[test]
+    fn write_unreliable_sequenced_split_packet() {
+        // Arrange
+        let packet = InternalPacket::new(
+            Instant::now(),
+            InternalReliability::Unreliable,
+            InternalOrdering::Sequenced {
+                sequencing_index: SequencingIndex::from_masked_u32(0x123456),
+                ordering_index: OrderingIndex::from_masked_u32(0x112233),
+                ordering_channel_index: 0x05
+            },
+            Some(SplitPacketHeader::new(0x11223344, 0x1357, 0x01234567)),
+            vec![0x12, 0x34].into_boxed_slice());
+        let mut buf = Vec::new();
+
+        // Act
+        packet.write(&mut buf).expect("Could not write packet");
+
+        // Assert
+        assert_eq!(buf, vec![
+            0b001_1_0000, // Bitflags: bit 7-5: reliability=1=Unreliable Sequenced, bit 4: has_split_packet=1=true
+            0x00, 0x10, // Data bit length: 0x0010=16 bits=2 bytes
+            0x56, 0x34, 0x12, // Sequencing index: 0x123456
+            0x33, 0x22, 0x11, // Ordering index: 0x112233
+            0x05, // Ordering channel: 5
+            0x11, 0x22, 0x33, 0x44, // Split packet count: 0x11223344
+            0x13, 0x57, // Split packet ID: 0x1357
+            0x01, 0x23, 0x45, 0x67, // Split packet index: 0x01234567 
+            0x12, 0x34, // Data [0x12, 0x34]
+        ]);
+    }    
+
+    #[test]
+    fn write_reliable_packet() {
+        // Arrange
+        let packet = InternalPacket::new(
+            Instant::now(),
+            InternalReliability::Reliable(MessageNumber::from_masked_u32(0x123456)),
+            InternalOrdering::None,
+            None,
+            vec![0x12, 0x34].into_boxed_slice());
+        let mut buf = Vec::new();
+
+        // Act
+        packet.write(&mut buf).expect("Could not write packet");
+
+        // Assert
+        assert_eq!(buf, vec![
+            0b010_0_0000, // Bitflags: bit 7-5: reliability=2=Reliable, bit 4: has_split_packet=0=false
+            0x00, 0x10, // Data bit length: 0x0010=16 bits=2 bytes
+            0x56, 0x34, 0x12, // Reliable message number: 0x123456
+            0x12, 0x34, // Data [0x12, 0x34]
+        ]);
+    }
+
+    #[test]
+    fn write_reliable_split_packet() {
+        // Arrange
+        let packet = InternalPacket::new(
+            Instant::now(),
+            InternalReliability::Reliable(MessageNumber::from_masked_u32(0x123456)),
+            InternalOrdering::None,
+            Some(SplitPacketHeader::new(0x11223344, 0x1357, 0x01234567)),
+            vec![0x12, 0x34].into_boxed_slice());
+        let mut buf = Vec::new();
+
+        // Act
+        packet.write(&mut buf).expect("Could not write packet");
+
+        // Assert
+        assert_eq!(buf, vec![
+            0b010_1_0000, // Bitflags: bit 7-5: reliability=2=Reliable, bit 4: has_split_packet=1=true
+            0x00, 0x10, // Data bit length: 0x0010=16 bits=2 bytes
+            0x56, 0x34, 0x12, // Reliable message number: 0x123456
+            0x11, 0x22, 0x33, 0x44, // Split packet count: 0x11223344
+            0x13, 0x57, // Split packet ID: 0x1357
+            0x01, 0x23, 0x45, 0x67, // Split packet index: 0x01234567 
+            0x12, 0x34, // Data [0x12, 0x34]
+        ]);
+    }
+
+    #[test]
+    fn write_reliable_ordered_packet() {
+        // Arrange
+        let packet = InternalPacket::new(
+            Instant::now(),
+            InternalReliability::Reliable(MessageNumber::from_masked_u32(0x123456)),
+            InternalOrdering::Ordered {
+                ordering_index: OrderingIndex::from_masked_u32(0x112233),
+                ordering_channel_index: 0x05
+            },
+            None,
+            vec![0x12, 0x34].into_boxed_slice());
+        let mut buf = Vec::new();
+
+        // Act
+        packet.write(&mut buf).expect("Could not write packet");
+
+        // Assert
+        assert_eq!(buf, vec![
+            0b011_0_0000, // Bitflags: bit 7-5: reliability=3=Reliable Ordered, bit 4: has_split_packet=0=false
+            0x00, 0x10, // Data bit length: 0x0010=16 bits=2 bytes
+            0x56, 0x34, 0x12, // Reliable message number: 0x123456
+            0x33, 0x22, 0x11, // Ordering index: 0x112233
+            0x05, // Ordering channel: 5
+            0x12, 0x34, // Data [0x12, 0x34]
+        ]);
+   }    
+
+    #[test]
+    fn write_reliable_ordered_split_packet() {
+        // Arrange
+        let packet = InternalPacket::new(
+            Instant::now(),
+            InternalReliability::Reliable(MessageNumber::from_masked_u32(0x123456)),
+            InternalOrdering::Ordered {
+                ordering_index: OrderingIndex::from_masked_u32(0x112233),
+                ordering_channel_index: 0x05
+            },
+            Some(SplitPacketHeader::new(0x11223344, 0x1357, 0x01234567)),
+            vec![0x12, 0x34].into_boxed_slice());
+        let mut buf = Vec::new();
+
+        // Act
+        packet.write(&mut buf).expect("Could not write packet");
+
+        // Assert
+        assert_eq!(buf, vec![
+            0b011_1_0000, // Bitflags: bit 7-5: reliability=3=Reliable Ordered, bit 4: has_split_packet=1=true
+            0x00, 0x10, // Data bit length: 0x0010=16 bits=2 bytes
+            0x56, 0x34, 0x12, // Reliable message number: 0x123456
+            0x33, 0x22, 0x11, // Ordering index: 0x112233
+            0x05, // Ordering channel: 5
+            0x11, 0x22, 0x33, 0x44, // Split packet count: 0x11223344
+            0x13, 0x57, // Split packet ID: 0x1357
+            0x01, 0x23, 0x45, 0x67, // Split packet index: 0x01234567 
+            0x12, 0x34, // Data [0x12, 0x34]
+        ]);
+    }
+
+    #[test]
+    fn write_reliable_sequenced_packet() {
+        // Arrange
+        let packet = InternalPacket::new(
+            Instant::now(),
+            InternalReliability::Reliable(MessageNumber::from_masked_u32(0x123456)),
+            InternalOrdering::Sequenced {
+                sequencing_index: SequencingIndex::from_masked_u32(0x102030),
+                ordering_index: OrderingIndex::from_masked_u32(0x112233),
+                ordering_channel_index: 0x05
+            },
+            None,
+            vec![0x12, 0x34].into_boxed_slice());
+        let mut buf = Vec::new();
+
+        // Act
+        packet.write(&mut buf).expect("Could not write packet");
+
+        // Assert
+        assert_eq!(buf, vec! [
+            0b100_0_0000, // Bitflags: bit 7-5: reliability=4=Reliable Sequenced, bit 4: has_split_packet=0=false
+            0x00, 0x10, // Data bit length: 0x0010=16 bits=2 bytes
+            0x56, 0x34, 0x12, // Reliable message number: 0x123456
+            0x30, 0x20, 0x10, // Sequencing index: 0x102030
+            0x33, 0x22, 0x11, // Ordering index: 0x112233
+            0x05, // Ordering channel: 5
+            0x12, 0x34, // Data [0x12, 0x34]
+        ]);
+    }
+
+    #[test]
+    fn write_reliable_sequenced_split_packet() {
+        // Arrange
+        let packet = InternalPacket::new(
+            Instant::now(),
+            InternalReliability::Reliable(MessageNumber::from_masked_u32(0x123456)),
+            InternalOrdering::Sequenced {
+                sequencing_index: SequencingIndex::from_masked_u32(0x102030),
+                ordering_index: OrderingIndex::from_masked_u32(0x112233),
+                ordering_channel_index: 0x05
+            },
+            Some(SplitPacketHeader::new(0x11223344, 0x1357, 0x01234567)),
+            vec![0x12, 0x34].into_boxed_slice());
+        let mut buf = Vec::new();
+
+        // Act
+        packet.write(&mut buf).expect("Could not write packet");
+
+        // Assert
+        assert_eq!(buf, vec! [
+            0b100_1_0000, // Bitflags: bit 7-5: reliability=4=Reliable Sequenced, bit 4: has_split_packet=1=true
+            0x00, 0x10, // Data bit length: 0x0010=16 bits=2 bytes
+            0x56, 0x34, 0x12, // Reliable message number: 0x123456
+            0x30, 0x20, 0x10, // Sequencing index: 0x102030
+            0x33, 0x22, 0x11, // Ordering index: 0x112233
+            0x05, // Ordering channel: 5
+            0x11, 0x22, 0x33, 0x44, // Split packet count: 0x11223344
+            0x13, 0x57, // Split packet ID: 0x1357
+            0x01, 0x23, 0x45, 0x67, // Split packet index: 0x01234567 
+            0x12, 0x34, // Data [0x12, 0x34]
+        ]);
+    }
 }
