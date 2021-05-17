@@ -4,13 +4,15 @@ use log::{debug, error};
 use crate::{
     acknowledgement::OutgoingAcknowledgements,
     communicator::Communicator,
-    constants::{MAX_ACK_DATAGRAM_HEADER_SIZE, MAX_NACK_DATAGRAM_HEADER_SIZE},
+    constants::{MAX_ACK_DATAGRAM_HEADER_SIZE, MAX_NACK_DATAGRAM_HEADER_SIZE, UDP_HEADER_SIZE, NUMBER_OF_ORDERING_CHANNELS},
     datagram_header::DatagramHeader,
     datagram_range_list::DatagramRangeList,
     error::Result,
-    internal_packet::{InternalOrdering, InternalPacket, InternalReliability}, 
+    internal_packet::{InternalOrdering, InternalPacket, InternalReliability, SplitPacketHeader}, 
     nack::OutgoingNacks,
+    number::{OrderingIndex, SequencingIndex},
     ordering_system::OrderingSystem,
+    outgoing_packet_heap::OutgoingPacketHeap,
     packet::{Ordering, Packet, Priority, Reliability},
     reader::{DataRead, DataReader},
     reliable_message_number_handler::ReliableMessageNumberHandler,
@@ -21,12 +23,15 @@ use crate::{
 pub struct ReliabilityLayer {
     outgoing_acks: OutgoingAcknowledgements,
     outgoing_nacks: OutgoingNacks,
+    outgoing_packet_heap: OutgoingPacketHeap,
     reliable_message_number_handler: ReliableMessageNumberHandler,
     ordering_system: OrderingSystem,
     split_packet_handler: SplitPacketHandler,
     remote_addr: SocketAddr,
     remote_guid: u64,
-    mtu: u16,    
+    mtu: u16,
+    next_ordering_index: OrderingIndex,
+    next_sequencing_index: SequencingIndex,
 }
 
 impl ReliabilityLayer {
@@ -34,12 +39,15 @@ impl ReliabilityLayer {
         ReliabilityLayer {
             outgoing_acks: OutgoingAcknowledgements::new(),
             outgoing_nacks: OutgoingNacks::new(),
+            outgoing_packet_heap: OutgoingPacketHeap::new(),
             reliable_message_number_handler: ReliableMessageNumberHandler::new(),
             ordering_system: OrderingSystem::new(),
             split_packet_handler: SplitPacketHandler::new(),
             remote_addr,
             remote_guid,
             mtu,
+            next_ordering_index: OrderingIndex::ZERO,
+            next_sequencing_index: SequencingIndex::ZERO,
         }
     }
 
@@ -83,10 +91,63 @@ impl ReliabilityLayer {
     }
 
     /// Enqueues a packet for sending.
-    pub fn send_packet(&mut self, _priority: Priority, _reliability: Reliability, _ordering: Ordering, _receipt: Option<u32>, _payload: Box<[u8]>) {
+    pub fn send_packet(&mut self, time: Instant, priority: Priority, reliability: Reliability, ordering: Ordering, receipt: Option<u32>, payload: Box<[u8]>) {
         // TODO: Store the time when the last reliable send was done (if reliable)
         // TODO: Enqueue packet for sending
+        if payload.len() > self.get_max_payload_size() as usize {
+            // TODO: Split packet
+        } else {
+            self.send_packet_internal(time, priority, reliability, ordering, None, receipt, payload);
+        }
     }
+
+    /// Enqueues a packet that is expected to have been pre-split into parts that can fit a datagram.
+    fn send_packet_internal(&mut self, time: Instant, priority: Priority, reliability: Reliability,
+        ordering: Ordering, split_packet_header: Option<SplitPacketHeader>, _receipt: Option<u32>, payload: Box<[u8]>) {
+        // TODO: Store the time when the last reliable send was done (if reliable)
+        let reliability = match reliability {
+            Reliability::Unreliable => InternalReliability::Unreliable,
+            Reliability::Reliable => InternalReliability::Reliable(None),
+        };
+        let ordering = match ordering {
+            Ordering::None => InternalOrdering::None,
+            Ordering::Ordered(ordering_channel_index) => InternalOrdering::Ordered {
+                ordering_index: self.get_and_increment_ordering_index(),
+                ordering_channel_index: if ordering_channel_index < NUMBER_OF_ORDERING_CHANNELS { ordering_channel_index } else { 0 },
+            },
+            Ordering::Sequenced(ordering_channel_index) => InternalOrdering::Sequenced {
+                sequencing_index: self.get_and_increment_sequencing_index(),
+                ordering_index: self.next_ordering_index,
+                ordering_channel_index: if ordering_channel_index < NUMBER_OF_ORDERING_CHANNELS { ordering_channel_index } else { 0 },
+            },
+        };
+        // TODO: Store receipt in packet
+        let packet = InternalPacket::new(time, reliability, ordering, split_packet_header, payload);
+        self.outgoing_packet_heap.push(priority, packet);
+    }
+
+    fn get_and_increment_ordering_index(&mut self) -> OrderingIndex {
+        let ordering_index = self.next_ordering_index;
+        self.next_ordering_index = self.next_ordering_index.wrapping_add(OrderingIndex::ONE);
+        ordering_index
+    }
+
+    fn get_and_increment_sequencing_index(&mut self) -> SequencingIndex {
+        let sequencing_index = self.next_sequencing_index;
+        self.next_sequencing_index = self.next_sequencing_index.wrapping_add(SequencingIndex::ONE);
+        sequencing_index
+    }    
+
+    fn get_max_payload_size(&self) -> u16 {
+        // Datagram bitflags (u8) + datagram number (u24)
+        let datagram_header_size = 1 + 3;
+        let max_datagram_size_excluding_header = self.mtu - UDP_HEADER_SIZE - datagram_header_size;
+        // Bitflags (u8) + data bit length (u16) + reliable message number (u24)
+        // + seuencing index (u24) + ordering index (u24) + ordering channel (u8)
+        // + split packet count (u32) + split packet ID (u16) + split packet index (u32)        
+        let max_packet_header_size = 1 + 2 + 3 + 3 + 3 + 1 + 4 + 2 + 4;
+        max_datagram_size_excluding_header - max_packet_header_size
+    }    
 
     /// Sends all waiting outgoing acknowledgements.
     fn send_acks(&mut self, communicator: &mut Communicator<impl DatagramSocket>) {

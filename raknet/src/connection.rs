@@ -112,16 +112,16 @@ impl Connection {
                     client_time: connection_request.time,
                     server_time: time.saturating_duration_since(self.peer_creation_time).as_millis() as u64,
                 };
-                self.send_connected_message(&message);
+                self.send_connected_message(time, &message);
             },
             Err(err) => error!("Failed reading connection request message: {}", err),
         }
     }
 
-    fn send_connected_message(&mut self, message: &dyn MessageWrite) {
+    fn send_connected_message(&mut self, time: Instant, message: &dyn MessageWrite) {
         let mut payload = Vec::new();
         match message.write_message(&mut payload) {
-            Ok(()) => self.reliability_layer.send_packet(Priority::Highest, Reliability::Reliable, Ordering::Ordered(0), None, payload.into_boxed_slice()),
+            Ok(()) => self.reliability_layer.send_packet(time, Priority::Highest, Reliability::Reliable, Ordering::Ordered(0), None, payload.into_boxed_slice()),
             Err(err) => error!("Failed writing message to buffer: {:?}", err),
         }
     }

@@ -30,6 +30,7 @@ mod number;
 mod offline_packet_handler;
 mod ordering_channel;
 mod ordering_system;
+mod outgoing_packet_heap;
 mod packet;
 mod peer;
 mod peer_event;
