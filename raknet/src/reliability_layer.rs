@@ -157,7 +157,7 @@ impl ReliabilityLayer {
         while reader.has_more() {
             let mut packet = InternalPacket::read(time, &mut reader)?;
             debug!("Received a packet:\n{:?}", packet);
-            if let InternalReliability::Reliable(reliable_message_number) = packet.reliability() {
+            if let InternalReliability::Reliable(Some(reliable_message_number)) = packet.reliability() {
                 debug!("Packet is reliable with message number {}", reliable_message_number);
                 if self.reliable_message_number_handler.should_discard_packet(reliable_message_number) {
                     debug!("Dropping packet with duplicate message number: {}", reliable_message_number);

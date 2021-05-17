@@ -11,7 +11,7 @@ use crate::{
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum InternalReliability {
     Unreliable,
-    Reliable(MessageNumber),
+    Reliable(Option<MessageNumber>),
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -108,12 +108,12 @@ impl InternalPacket {
                     ordering_channel_index,
                 })
             },
-            2 => (InternalReliability::Reliable(MessageNumber::from(reader.read_u24()?)), InternalOrdering::None),
+            2 => (InternalReliability::Reliable(Some(MessageNumber::from(reader.read_u24()?))), InternalOrdering::None),
             3 => {
                 let reliable_message_number = MessageNumber::from(reader.read_u24()?);
                 let ordering_index = OrderingIndex::from(reader.read_u24()?);
                 let ordering_channel_index = OrderingChannelIndex::from(reader.read_u8()?);
-                (InternalReliability::Reliable(reliable_message_number), InternalOrdering::Ordered {
+                (InternalReliability::Reliable(Some(reliable_message_number)), InternalOrdering::Ordered {
                     ordering_index,
                     ordering_channel_index,
                 })
@@ -123,7 +123,7 @@ impl InternalPacket {
                 let sequencing_index = SequencingIndex::from(reader.read_u24()?);
                 let ordering_index = OrderingIndex::from(reader.read_u24()?);
                 let ordering_channel_index = OrderingChannelIndex::from(reader.read_u8()?);
-                (InternalReliability::Reliable(reliable_message_number),InternalOrdering::Sequenced {
+                (InternalReliability::Reliable(Some(reliable_message_number)),InternalOrdering::Sequenced {
                     sequencing_index,
                     ordering_index,
                     ordering_channel_index,
@@ -168,7 +168,11 @@ impl InternalPacket {
         writer.write_u16_be((self.payload.len() * 8) as u16)?;
 
         if let InternalReliability::Reliable(reliable_message_number) = self.reliability {
-            writer.write_u24(reliable_message_number)?;
+            if let Some(reliable_message_number) = reliable_message_number {
+                writer.write_u24(reliable_message_number)?;
+            } else {
+                return Err(WriteError::InvalidHeader.into());
+            }
         }
         match self.ordering {
             InternalOrdering::Sequenced {sequencing_index, ordering_index, ordering_channel_index } => {
@@ -346,7 +350,7 @@ mod tests {
         let packet = InternalPacket::read(Instant::now(), &mut reader).expect("Failed to read packet");
 
         // Assert
-        assert!(matches!(packet.reliability(), InternalReliability::Reliable(message_number) if message_number == MessageNumber::try_from(0x123456).unwrap()));
+        assert!(matches!(packet.reliability(), InternalReliability::Reliable(Some(message_number)) if message_number == MessageNumber::try_from(0x123456).unwrap()));
         assert!(matches!(packet.ordering(), InternalOrdering::None));
         assert!(matches!(packet.split_packet_header(), None));
         assert_eq!(packet.payload(), &[0x12, 0x34]);
@@ -370,7 +374,7 @@ mod tests {
         let packet = InternalPacket::read(Instant::now(), &mut reader).expect("Failed to read packet");
 
         // Assert
-        assert!(matches!(packet.reliability(), InternalReliability::Reliable(message_number) if message_number == MessageNumber::try_from(0x123456).unwrap()));
+        assert!(matches!(packet.reliability(), InternalReliability::Reliable(Some(message_number)) if message_number == MessageNumber::try_from(0x123456).unwrap()));
         assert!(matches!(packet.ordering(), InternalOrdering::None));
         assert!(matches!(packet.split_packet_header(), Some(header)
             if header.split_packet_count() == 0x11223344 &&
@@ -397,7 +401,7 @@ mod tests {
         let packet = InternalPacket::read(Instant::now(), &mut reader).expect("Failed to read packet");
 
         // Assert
-        assert!(matches!(packet.reliability(), InternalReliability::Reliable(message_number) if message_number == MessageNumber::try_from(0x123456).unwrap()));
+        assert!(matches!(packet.reliability(), InternalReliability::Reliable(Some(message_number)) if message_number == MessageNumber::try_from(0x123456).unwrap()));
         assert!(matches!(packet.ordering(), InternalOrdering::Ordered {
             ordering_index,
             ordering_channel_index: 0x05
@@ -426,7 +430,7 @@ mod tests {
         let packet = InternalPacket::read(Instant::now(), &mut reader).expect("Failed to read packet");
 
         // Assert
-        assert!(matches!(packet.reliability(), InternalReliability::Reliable(message_number) if message_number == MessageNumber::try_from(0x123456).unwrap()));
+        assert!(matches!(packet.reliability(), InternalReliability::Reliable(Some(message_number)) if message_number == MessageNumber::try_from(0x123456).unwrap()));
         assert!(matches!(packet.ordering(), InternalOrdering::Ordered {
             ordering_index,
             ordering_channel_index: 0x05
@@ -457,7 +461,7 @@ mod tests {
         let packet = InternalPacket::read(Instant::now(), &mut reader).expect("Failed to read packet");
 
         // Assert
-        assert!(matches!(packet.reliability(), InternalReliability::Reliable(message_number) if message_number == MessageNumber::try_from(0x123456).unwrap()));
+        assert!(matches!(packet.reliability(), InternalReliability::Reliable(Some(message_number)) if message_number == MessageNumber::try_from(0x123456).unwrap()));
         assert!(matches!(packet.ordering(), InternalOrdering::Sequenced {
             sequencing_index,
             ordering_index,
@@ -490,7 +494,7 @@ mod tests {
         let packet = InternalPacket::read(Instant::now(), &mut reader).expect("Failed to read packet");
 
         // Assert
-        assert!(matches!(packet.reliability(), InternalReliability::Reliable(message_number) if message_number == MessageNumber::try_from(0x123456).unwrap()));
+        assert!(matches!(packet.reliability(), InternalReliability::Reliable(Some(message_number)) if message_number == MessageNumber::try_from(0x123456).unwrap()));
         assert!(matches!(packet.ordering(), InternalOrdering::Sequenced {
             sequencing_index,
             ordering_index,
@@ -614,7 +618,7 @@ mod tests {
         // Arrange
         let packet = InternalPacket::new(
             Instant::now(),
-            InternalReliability::Reliable(MessageNumber::from_masked_u32(0x123456)),
+            InternalReliability::Reliable(Some(MessageNumber::from_masked_u32(0x123456))),
             InternalOrdering::None,
             None,
             vec![0x12, 0x34].into_boxed_slice());
@@ -637,7 +641,7 @@ mod tests {
         // Arrange
         let packet = InternalPacket::new(
             Instant::now(),
-            InternalReliability::Reliable(MessageNumber::from_masked_u32(0x123456)),
+            InternalReliability::Reliable(Some(MessageNumber::from_masked_u32(0x123456))),
             InternalOrdering::None,
             Some(SplitPacketHeader::new(0x11223344, 0x1357, 0x01234567)),
             vec![0x12, 0x34].into_boxed_slice());
@@ -663,7 +667,7 @@ mod tests {
         // Arrange
         let packet = InternalPacket::new(
             Instant::now(),
-            InternalReliability::Reliable(MessageNumber::from_masked_u32(0x123456)),
+            InternalReliability::Reliable(Some(MessageNumber::from_masked_u32(0x123456))),
             InternalOrdering::Ordered {
                 ordering_index: OrderingIndex::from_masked_u32(0x112233),
                 ordering_channel_index: 0x05
@@ -691,7 +695,7 @@ mod tests {
         // Arrange
         let packet = InternalPacket::new(
             Instant::now(),
-            InternalReliability::Reliable(MessageNumber::from_masked_u32(0x123456)),
+            InternalReliability::Reliable(Some(MessageNumber::from_masked_u32(0x123456))),
             InternalOrdering::Ordered {
                 ordering_index: OrderingIndex::from_masked_u32(0x112233),
                 ordering_channel_index: 0x05
@@ -722,7 +726,7 @@ mod tests {
         // Arrange
         let packet = InternalPacket::new(
             Instant::now(),
-            InternalReliability::Reliable(MessageNumber::from_masked_u32(0x123456)),
+            InternalReliability::Reliable(Some(MessageNumber::from_masked_u32(0x123456))),
             InternalOrdering::Sequenced {
                 sequencing_index: SequencingIndex::from_masked_u32(0x102030),
                 ordering_index: OrderingIndex::from_masked_u32(0x112233),
@@ -752,7 +756,7 @@ mod tests {
         // Arrange
         let packet = InternalPacket::new(
             Instant::now(),
-            InternalReliability::Reliable(MessageNumber::from_masked_u32(0x123456)),
+            InternalReliability::Reliable(Some(MessageNumber::from_masked_u32(0x123456))),
             InternalOrdering::Sequenced {
                 sequencing_index: SequencingIndex::from_masked_u32(0x102030),
                 ordering_index: OrderingIndex::from_masked_u32(0x112233),
