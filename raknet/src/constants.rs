@@ -10,6 +10,8 @@ pub const MAXIMUM_MTU_SIZE: u16 = 1492;
 
 pub const NUMBER_OF_ORDERING_CHANNELS: u8 = 32;
 
+pub const NUMBER_OF_PRIORITIES: usize = 4;
+
 pub const TIME_BEFORE_SENDING_ACKS: Duration = Duration::from_millis(10);
 
 pub const MAX_ACK_DATAGRAM_HEADER_SIZE: usize = 1 + 4; // Bitflags (u8) + AS (f32)

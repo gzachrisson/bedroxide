@@ -31,27 +31,27 @@ impl Packet {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Reliability {
     Unreliable,
     Reliable,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Ordering {
     None,
     Ordered(OrderingChannelIndex),
     Sequenced(OrderingChannelIndex),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Priority {
     /// The highest possible priority.
-    Highest,
+    Highest = 0,
     /// For every 2 Immediate priority packet 1 High priority packet will be sent.
-    High,
+    High = 1,
     /// For every 2 High priority packet 1 Medium priority packet will be sent.
-    Medium,
+    Medium = 2,
     /// For every 2 Medium priority packet 1 Low priority packet will be sent.
-    Low,
+    Low = 3,
 }

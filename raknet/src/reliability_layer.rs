@@ -10,7 +10,7 @@ use crate::{
     error::Result,
     internal_packet::{InternalOrdering, InternalPacket, InternalReliability, SplitPacketHeader}, 
     nack::OutgoingNacks,
-    number::{OrderingIndex, SequencingIndex},
+    number::{OrderingChannelIndex, OrderingIndex, SequencingIndex},
     ordering_system::OrderingSystem,
     outgoing_packet_heap::OutgoingPacketHeap,
     packet::{Ordering, Packet, Priority, Reliability},
@@ -30,8 +30,8 @@ pub struct ReliabilityLayer {
     remote_addr: SocketAddr,
     remote_guid: u64,
     mtu: u16,
-    next_ordering_index: OrderingIndex,
-    next_sequencing_index: SequencingIndex,
+    next_ordering_index: [OrderingIndex; NUMBER_OF_ORDERING_CHANNELS as usize],
+    next_sequencing_index: [SequencingIndex; NUMBER_OF_ORDERING_CHANNELS as usize],
 }
 
 impl ReliabilityLayer {
@@ -46,8 +46,8 @@ impl ReliabilityLayer {
             remote_addr,
             remote_guid,
             mtu,
-            next_ordering_index: OrderingIndex::ZERO,
-            next_sequencing_index: SequencingIndex::ZERO,
+            next_ordering_index: [OrderingIndex::ZERO; NUMBER_OF_ORDERING_CHANNELS as usize],
+            next_sequencing_index: [SequencingIndex::ZERO; NUMBER_OF_ORDERING_CHANNELS as usize],
         }
     }
 
@@ -96,6 +96,7 @@ impl ReliabilityLayer {
         // TODO: Enqueue packet for sending
         if payload.len() > self.get_max_payload_size() as usize {
             // TODO: Split packet
+            // TODO: Set reliability to Reliability::Reliable for split packet if unreliable.
         } else {
             self.send_packet_internal(time, priority, reliability, ordering, None, receipt, payload);
         }
@@ -111,14 +112,22 @@ impl ReliabilityLayer {
         };
         let ordering = match ordering {
             Ordering::None => InternalOrdering::None,
-            Ordering::Ordered(ordering_channel_index) => InternalOrdering::Ordered {
-                ordering_index: self.get_and_increment_ordering_index(),
-                ordering_channel_index: if ordering_channel_index < NUMBER_OF_ORDERING_CHANNELS { ordering_channel_index } else { 0 },
+            Ordering::Ordered(ordering_channel_index) => {
+                let ordering_channel_index = if ordering_channel_index < NUMBER_OF_ORDERING_CHANNELS { ordering_channel_index } else { 0 };
+                let ordering_index = self.get_and_increment_ordering_index(ordering_channel_index);
+                self.clear_sequencing_index(ordering_channel_index);
+                InternalOrdering::Ordered {
+                    ordering_index,
+                    ordering_channel_index,
+                }
             },
-            Ordering::Sequenced(ordering_channel_index) => InternalOrdering::Sequenced {
-                sequencing_index: self.get_and_increment_sequencing_index(),
-                ordering_index: self.next_ordering_index,
-                ordering_channel_index: if ordering_channel_index < NUMBER_OF_ORDERING_CHANNELS { ordering_channel_index } else { 0 },
+            Ordering::Sequenced(ordering_channel_index) => {
+                let ordering_channel_index = if ordering_channel_index < NUMBER_OF_ORDERING_CHANNELS { ordering_channel_index } else { 0 };
+                InternalOrdering::Sequenced {
+                    sequencing_index: self.get_and_increment_sequencing_index(ordering_channel_index),
+                    ordering_index: self.get_ordering_index(ordering_channel_index),
+                    ordering_channel_index,
+                }
             },
         };
         // TODO: Store receipt in packet
@@ -126,15 +135,23 @@ impl ReliabilityLayer {
         self.outgoing_packet_heap.push(priority, packet);
     }
 
-    fn get_and_increment_ordering_index(&mut self) -> OrderingIndex {
-        let ordering_index = self.next_ordering_index;
-        self.next_ordering_index = self.next_ordering_index.wrapping_add(OrderingIndex::ONE);
+    fn clear_sequencing_index(&mut self, ordering_channel_index: OrderingChannelIndex) {
+        self.next_sequencing_index[ordering_channel_index as usize] = SequencingIndex::ZERO;
+    }
+
+    fn get_ordering_index(&self, ordering_channel_index: OrderingChannelIndex) -> OrderingIndex {
+        self.next_ordering_index[ordering_channel_index as usize]
+    }
+
+    fn get_and_increment_ordering_index(&mut self, ordering_channel_index: OrderingChannelIndex) -> OrderingIndex {
+        let ordering_index = self.next_ordering_index[ordering_channel_index as usize];
+        self.next_ordering_index[ordering_channel_index as usize] = ordering_index.wrapping_add(OrderingIndex::ONE);
         ordering_index
     }
 
-    fn get_and_increment_sequencing_index(&mut self) -> SequencingIndex {
-        let sequencing_index = self.next_sequencing_index;
-        self.next_sequencing_index = self.next_sequencing_index.wrapping_add(SequencingIndex::ONE);
+    fn get_and_increment_sequencing_index(&mut self, ordering_channel_index: OrderingChannelIndex) -> SequencingIndex {
+        let sequencing_index = self.next_sequencing_index[ordering_channel_index as usize];
+        self.next_sequencing_index[ordering_channel_index as usize] = sequencing_index.wrapping_add(SequencingIndex::ONE);
         sequencing_index
     }    
 
