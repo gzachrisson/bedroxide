@@ -2,9 +2,10 @@ use std::{net::SocketAddr, time::Instant};
 use log::{debug, error};
 
 use crate::{
-    acknowledgement::OutgoingAcknowledgements,
+    acknowledge_handler::AcknowledgeHandler,
     communicator::Communicator,
-    constants::{MAX_ACK_DATAGRAM_HEADER_SIZE, MAX_NACK_DATAGRAM_HEADER_SIZE, UDP_HEADER_SIZE, NUMBER_OF_ORDERING_CHANNELS},
+    config::Config,
+    constants::{MAX_ACK_DATAGRAM_HEADER_SIZE, MAX_NACK_DATAGRAM_HEADER_SIZE, NUMBER_OF_ORDERING_CHANNELS},
     datagram_header::DatagramHeader,
     datagram_range_list::DatagramRangeList,
     error::Result,
@@ -12,8 +13,10 @@ use crate::{
     nack::OutgoingNacks,
     number::{OrderingChannelIndex, OrderingIndex, SequencingIndex},
     ordering_system::OrderingSystem,
+    outgoing_acknowledgements::OutgoingAcknowledgements,
     outgoing_packet_heap::OutgoingPacketHeap,
     packet::{Ordering, Packet, Priority, Reliability},
+    packet_datagram::PacketDatagram,
     reader::{DataRead, DataReader},
     reliable_message_number_handler::ReliableMessageNumberHandler,
     socket::DatagramSocket,
@@ -21,6 +24,7 @@ use crate::{
 };
 
 pub struct ReliabilityLayer {
+    acknowledge_handler: AcknowledgeHandler,
     outgoing_acks: OutgoingAcknowledgements,
     outgoing_nacks: OutgoingNacks,
     outgoing_packet_heap: OutgoingPacketHeap,
@@ -30,13 +34,16 @@ pub struct ReliabilityLayer {
     remote_addr: SocketAddr,
     remote_guid: u64,
     mtu: u16,
+    time_last_datagram_arrived: Instant,
     next_ordering_index: [OrderingIndex; NUMBER_OF_ORDERING_CHANNELS as usize],
     next_sequencing_index: [SequencingIndex; NUMBER_OF_ORDERING_CHANNELS as usize],
+    send_buffer: Vec<u8>,
 }
 
 impl ReliabilityLayer {
     pub fn new(remote_addr: SocketAddr, remote_guid: u64, mtu: u16) -> Self {
         ReliabilityLayer {
+            acknowledge_handler: AcknowledgeHandler::new(),
             outgoing_acks: OutgoingAcknowledgements::new(),
             outgoing_nacks: OutgoingNacks::new(),
             outgoing_packet_heap: OutgoingPacketHeap::new(),
@@ -46,13 +53,16 @@ impl ReliabilityLayer {
             remote_addr,
             remote_guid,
             mtu,
+            time_last_datagram_arrived: Instant::now(),
             next_ordering_index: [OrderingIndex::ZERO; NUMBER_OF_ORDERING_CHANNELS as usize],
             next_sequencing_index: [SequencingIndex::ZERO; NUMBER_OF_ORDERING_CHANNELS as usize],
+            send_buffer: Vec::new(),
         }
     }
 
     /// Processes an incoming datagram.
     pub fn process_incoming_datagram(&mut self, payload: &[u8], time: Instant, _communicator: &mut Communicator<impl DatagramSocket>) -> Option<Vec<Packet>> {
+        self.time_last_datagram_arrived = time;
         let mut reader = DataReader::new(payload);
         match DatagramHeader::read(&mut reader) {
             Ok(DatagramHeader::Ack { data_arrival_rate }) => {
@@ -80,7 +90,17 @@ impl ReliabilityLayer {
         None
     }
 
+    pub fn is_ack_timeout(&self, time: Instant, config: &Config) -> bool {
+        self.acknowledge_handler.datagrams_in_flight() > 0 &&
+            time.saturating_duration_since(self.time_last_datagram_arrived).as_millis() > config.ack_timeout_in_ms
+    }
+
     pub fn update(&mut self, time: Instant, communicator: &mut Communicator<impl DatagramSocket>) {
+        if self.is_ack_timeout(time, communicator.config()) {
+            // Connection is dead and will be dropped
+            return;
+        }
+        
         if self.outgoing_acks.should_send_acks(time) {
             self.send_acks(communicator);
         }
@@ -88,13 +108,47 @@ impl ReliabilityLayer {
         if !self.outgoing_nacks.is_empty() {
             self.send_nacks(communicator);
         }
+        
+        // TODO: Resend not ACKed packets
+        // TODO: Send outgoing packets        
+        let mut datagram = PacketDatagram::new(self.acknowledge_handler.get_next_datagram_number());
+        loop {
+            while let Some(packet) = self.outgoing_packet_heap.peek() {
+                if !datagram.has_room_for(packet, self.mtu) {
+                    // Datagram full, break out of loop and send datagram
+                    break;
+                }
+                if let Some(mut packet) = self.outgoing_packet_heap.pop() {
+                    if let InternalReliability::Reliable(None) = packet.reliability() {
+                        let realiable_message_number = self.reliable_message_number_handler.get_and_increment_reliable_message_number();
+                        packet.set_reliability(InternalReliability::Reliable(Some(realiable_message_number)));
+                    }
+                    datagram.push(packet);
+                }
+            }
+            if datagram.is_empty() {
+                // Nothing more to send, break out of loop
+                break;
+            }
+            match self.acknowledge_handler.process_outgoing_datagram(datagram, &mut self.send_buffer) {
+                Ok(()) => {
+                    communicator.send_datagram(&self.send_buffer, self.remote_addr);
+                    datagram = PacketDatagram::new(self.acknowledge_handler.get_next_datagram_number());
+                },
+                Err(err) => {
+                    error!("Failed processing outgoing datagram: {:?}", err);
+                    break;
+                }
+            }
+        }
+
     }
 
     /// Enqueues a packet for sending.
     pub fn send_packet(&mut self, time: Instant, priority: Priority, reliability: Reliability, ordering: Ordering, receipt: Option<u32>, payload: Box<[u8]>) {
         // TODO: Store the time when the last reliable send was done (if reliable)
         // TODO: Enqueue packet for sending
-        if payload.len() > self.get_max_payload_size() as usize {
+        if payload.len() > self.get_max_packet_payload_size() as usize {
             // TODO: Split packet
             // TODO: Set reliability to Reliability::Reliable for split packet if unreliable.
         } else {
@@ -104,7 +158,7 @@ impl ReliabilityLayer {
 
     /// Enqueues a packet that is expected to have been pre-split into parts that can fit a datagram.
     fn send_packet_internal(&mut self, time: Instant, priority: Priority, reliability: Reliability,
-        ordering: Ordering, split_packet_header: Option<SplitPacketHeader>, _receipt: Option<u32>, payload: Box<[u8]>) {
+        ordering: Ordering, split_packet_header: Option<SplitPacketHeader>, receipt: Option<u32>, payload: Box<[u8]>) {
         // TODO: Store the time when the last reliable send was done (if reliable)
         let reliability = match reliability {
             Reliability::Unreliable => InternalReliability::Unreliable,
@@ -130,8 +184,7 @@ impl ReliabilityLayer {
                 }
             },
         };
-        // TODO: Store receipt in packet
-        let packet = InternalPacket::new(time, reliability, ordering, split_packet_header, payload);
+        let packet = InternalPacket::new(time, reliability, ordering, split_packet_header, receipt, payload);
         self.outgoing_packet_heap.push(priority, packet);
     }
 
@@ -155,16 +208,13 @@ impl ReliabilityLayer {
         sequencing_index
     }    
 
-    fn get_max_payload_size(&self) -> u16 {
-        // Datagram bitflags (u8) + datagram number (u24)
-        let datagram_header_size = 1 + 3;
-        let max_datagram_size_excluding_header = self.mtu - UDP_HEADER_SIZE - datagram_header_size;
+    fn get_max_packet_payload_size(&self) -> u16 {
         // Bitflags (u8) + data bit length (u16) + reliable message number (u24)
         // + seuencing index (u24) + ordering index (u24) + ordering channel (u8)
         // + split packet count (u32) + split packet ID (u16) + split packet index (u32)        
         let max_packet_header_size = 1 + 2 + 3 + 3 + 3 + 1 + 4 + 2 + 4;
-        max_datagram_size_excluding_header - max_packet_header_size
-    }    
+        PacketDatagram::get_max_payload_size(self.mtu) - max_packet_header_size
+    }
 
     /// Sends all waiting outgoing acknowledgements.
     fn send_acks(&mut self, communicator: &mut Communicator<impl DatagramSocket>) {

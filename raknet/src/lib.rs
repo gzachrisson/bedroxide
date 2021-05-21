@@ -11,7 +11,7 @@ pub use self::{
     writer::DataWrite,
 };
 
-mod acknowledgement;
+mod acknowledge_handler;
 mod communicator;
 mod config;
 mod connection;
@@ -30,8 +30,10 @@ mod number;
 mod offline_packet_handler;
 mod ordering_channel;
 mod ordering_system;
+mod outgoing_acknowledgements;
 mod outgoing_packet_heap;
 mod packet;
+mod packet_datagram;
 mod peer;
 mod peer_event;
 mod reader;

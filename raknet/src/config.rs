@@ -15,6 +15,11 @@ pub struct Config {
     /// The time is measured from when this peer has sent
     /// an "open connection reply 2" until we receive a "connection request".
     pub incoming_connection_timeout_in_ms: u128,
+
+    /// The time in milliseconds before a connection is considered dead
+    /// if no datagrams have been received when this peer has sent packets
+    /// that are awaiting acks.
+    pub ack_timeout_in_ms: u128,
 }
 
 impl Default for Config {
@@ -23,6 +28,7 @@ impl Default for Config {
             guid: rand::random(),
             max_incoming_connections: 50,
             incoming_connection_timeout_in_ms: 10000,
+            ack_timeout_in_ms: 10000,
         }
     }
 }

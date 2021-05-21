@@ -133,6 +133,9 @@ impl Connection {
             time.saturating_duration_since(self.connection_time).as_millis() > communicator.config().incoming_connection_timeout_in_ms {
             debug!("Dropping connection from {} with guid {} because of connection timeout.", self.remote_addr, self.remote_guid);
             true
+        } else if self.reliability_layer.is_ack_timeout(time, communicator.config()) {
+            debug!("Dropping connection from {} with guid {} because of ack timeout.", self.remote_addr, self.remote_guid);
+            true
         } else {
             false
         }

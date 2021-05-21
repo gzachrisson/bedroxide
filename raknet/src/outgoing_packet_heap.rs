@@ -61,6 +61,14 @@ impl OutgoingPacketHeap {
         }
     }
 
+    pub fn peek(&self) -> Option<&InternalPacket> {
+        if let Some(item) = self.packets.peek() {
+            Some(&item.packet)
+        } else {
+            None
+        }
+    }
+
     fn get_next_weight(&mut self, priority: Priority) -> HeapWeight {
         let priority_level = priority as u64;
         let mut next_weight = self.next_weights[priority_level as usize];

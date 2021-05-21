@@ -5,6 +5,7 @@ use crate::number::MessageNumber;
 pub struct ReliableMessageNumberHandler {
     holes: VecDeque<bool>,
     base_index: MessageNumber,
+    next_outgoing_number: MessageNumber,
 }
 
 impl ReliableMessageNumberHandler {
@@ -12,7 +13,14 @@ impl ReliableMessageNumberHandler {
         ReliableMessageNumberHandler {
             holes: VecDeque::new(),
             base_index: MessageNumber::from_masked_u32(0),
+            next_outgoing_number: MessageNumber::ZERO,
         }
+    }
+
+    pub fn get_and_increment_reliable_message_number(&mut self) -> MessageNumber {
+        let number = self.next_outgoing_number;
+        self.next_outgoing_number.wrapping_add(MessageNumber::ONE);
+        number
     }
 
     /// Returns true if the message number has already been received

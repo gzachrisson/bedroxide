@@ -74,17 +74,19 @@ pub struct InternalPacket {
     reliability: InternalReliability,
     ordering: InternalOrdering,
     split_packet_header: Option<SplitPacketHeader>,
+    receipt: Option<u32>,
     payload: Box<[u8]>, 
 }
 
 impl InternalPacket {
     #[allow(dead_code)]
-    pub fn new(creation_time: Instant, reliability: InternalReliability, ordering: InternalOrdering, split_packet_header: Option<SplitPacketHeader>, payload: Box<[u8]>) -> Self {
+    pub fn new(creation_time: Instant, reliability: InternalReliability, ordering: InternalOrdering, split_packet_header: Option<SplitPacketHeader>, receipt: Option<u32>, payload: Box<[u8]>) -> Self {
         InternalPacket {
             creation_time,
             reliability,
             ordering,
             split_packet_header,
+            receipt,
             payload,
         }
     }
@@ -143,6 +145,7 @@ impl InternalPacket {
             reliability,
             ordering,
             split_packet_header,
+            receipt: None,
             payload,
         })
     }
@@ -199,12 +202,44 @@ impl InternalPacket {
         self.reliability
     }
 
+    pub fn set_reliability(&mut self, reliability: InternalReliability) {
+        self.reliability = reliability;
+    }
+
     pub fn ordering(&self) -> InternalOrdering {
         self.ordering
     }
 
     pub fn split_packet_header(&self) -> Option<SplitPacketHeader> {
         self.split_packet_header
+    }
+
+    pub fn get_size_in_bytes(&self) -> u16 {
+        self.get_header_size_in_bytes() + self.payload.len() as u16
+    }
+
+    fn get_header_size_in_bytes(&self) -> u16 {
+        // Bitflags (u8) + Data bit length (u16)
+        let mut header_size = 1 + 2;
+        if let InternalReliability::Reliable(_) = self.reliability {
+            // Reliable message number (u24)
+            header_size = header_size + 3;
+        }
+        header_size = header_size + match self.ordering {
+            InternalOrdering::None => 0,
+            InternalOrdering::Ordered { ordering_index: _, ordering_channel_index: _ } => 3 + 1,
+            InternalOrdering::Sequenced { sequencing_index: _, ordering_index: _, ordering_channel_index: _ } => 3 + 3 + 1,
+        };
+        if let Some(_) = self.split_packet_header {
+            // Split packet count (u32) + split packet ID (u16) + split packet index (u32)
+            header_size = header_size + 4 + 2 + 4;
+        }
+        header_size
+    }
+
+    #[allow(dead_code)]
+    pub fn receipt(&self) -> Option<u32> {
+        self.receipt
     }
 
     #[allow(dead_code)]
