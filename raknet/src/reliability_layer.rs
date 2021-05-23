@@ -72,7 +72,10 @@ impl ReliabilityLayer {
             },
             Ok(DatagramHeader::Nack) => {
                 debug!("Received NACK");
-                // TODO: Resend NACK:ed datagrams (by setting the next resend time to current time so they will be sent in next update)
+                match DatagramRangeList::read(&mut reader) {
+                    Ok(datagram_range_list) => self.acknowledge_handler.process_incoming_nack(time, datagram_range_list),
+                    Err(err) => error!("Error reading NACKs: {:?}", err),
+                }
             },
             Ok(DatagramHeader::Packet {is_packet_pair, is_continuous_send, needs_data_arrival_rate, datagram_number }) => {
                 debug!("Received a datagram of packets. is_packet_pair={}, is_continuous_send={}, needs_data_arrival_rate={}, datagram_number={}", 

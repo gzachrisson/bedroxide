@@ -1,7 +1,7 @@
 use std::convert::TryFrom;
 
 use crate::{
-    datagram_range::DatagramRange, Result, WriteError, writer::DataWrite
+    datagram_range::DatagramRange, Result, WriteError, writer::DataWrite, reader::DataRead
 };
 
 #[derive(Debug)]
@@ -57,12 +57,32 @@ impl DatagramRangeList {
             Err(WriteError::TooManyRanges.into())
         }
     }
+
+    pub fn read(reader: &mut dyn DataRead) -> Result<Self> {
+        let number_of_ranges = reader.read_u16_be()?;
+        let mut datagram_range_list = DatagramRangeList::new();
+        for _ in 0..number_of_ranges {
+            let start_equal_to_end = reader.read_u8()?;
+            let start = reader.read_u24()?;
+            let end = if start_equal_to_end == 0x01 {
+                start
+            } else {
+                reader.read_u24()?
+            };
+            datagram_range_list.push(DatagramRange::new(start, end));
+        }
+        Ok(datagram_range_list)
+    }
+
+    pub fn into_vec(self) -> Vec<DatagramRange> {
+        self.ranges
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::convert::TryFrom;
-    use crate::{datagram_range::DatagramRange, number::DatagramSequenceNumber};
+    use crate::{datagram_range::DatagramRange, number::DatagramSequenceNumber, reader::DataReader};
     use super::DatagramRangeList;
 
     #[test]
@@ -100,7 +120,7 @@ mod tests {
             0x00, 0x00, 0x00, // Start datagram number: 0x000000
             0xFF, 0x00, 0x00, // End datagram number: 0x0000FF
         ]);
-    }    
+    }
 
     #[test]
     fn datagram_range_list_write_multiple_ranges() {
@@ -126,7 +146,72 @@ mod tests {
             0x56, 0x34, 0x12, // Start datagram number: 0x123456
             0x55, 0x44, 0x33, // End datagram number: 0x334455
         ]);
+    }
+
+    #[test]
+    fn datagram_range_list_read_one_range_one_datagram() {
+        // Arrange
+        let buf = vec![
+            0x00, 0x01, // Range count: 0x0001
+            0x01, // Start equal to end? 0x01=yes
+            0x05, 0x00, 0x00, // Datagram number: 0x000005 
+        ];
+        let mut reader = DataReader::new(&buf);
+
+        // Act
+        let range_list = DatagramRangeList::read(&mut reader).expect("Couldn't read datagram range list");
+
+        // Assert
+        assert_eq!(range_list.bytes_used(), 6);
+        assert_eq!(range_list.into_vec(), vec![DatagramRange::new(DatagramSequenceNumber::from(5u8), DatagramSequenceNumber::from(5u8))]);
+    }
+
+    #[test]
+    fn datagram_range_list_read_one_range_multiple_acks() {
+        // Arrange
+        let buf = vec![
+            0x00, 0x01, // Range count: 0x0001
+            0x00, // Start equal to end? 0x00=no
+            0x00, 0x00, 0x00, // Start datagram number: 0x000000
+            0xFF, 0x00, 0x00, // End datagram number: 0x0000FF
+        ];
+        let mut reader = DataReader::new(&buf);
+
+        // Act
+        let range_list = DatagramRangeList::read(&mut reader).expect("Couldn't read datagram range list");
+
+        // Assert
+        assert_eq!(range_list.bytes_used(), 9);
+        assert_eq!(range_list.into_vec(), vec![DatagramRange::new(DatagramSequenceNumber::from(0u8), DatagramSequenceNumber::from(0xFFu8))]);
     }    
+
+    #[test]
+    fn datagram_range_list_read_multiple_ranges() {
+        // Arrange
+        let buf = vec![
+            0x00, 0x03, // Range count: 0x0003
+            0x01, // Start equal to end? 0x01=yes
+            0x00, 0x00, 0x00, // Datagram number: 0x000000
+            0x00, // Start equal to end? 0x00=no
+            0x05, 0x00, 0x00, // Start datagram number: 0x000005
+            0xFF, 0x00, 0x00, // End datagram number: 0x0000FF
+            0x00, // Start equal to end? 0x00=no
+            0x56, 0x34, 0x12, // Start datagram number: 0x123456
+            0x55, 0x44, 0x33, // End datagram number: 0x334455
+        ];
+        let mut reader = DataReader::new(&buf);
+
+        // Act
+        let range_list = DatagramRangeList::read(&mut reader).expect("Couldn't read datagram range list");
+
+        // Assert
+        assert_eq!(range_list.bytes_used(), 20);
+        assert_eq!(range_list.into_vec(), vec![
+            DatagramRange::new(DatagramSequenceNumber::ZERO, DatagramSequenceNumber::ZERO),
+            DatagramRange::new(DatagramSequenceNumber::from_masked_u32(0x05), DatagramSequenceNumber::from_masked_u32(0xFF)),
+            DatagramRange::new(DatagramSequenceNumber::from_masked_u32(0x123456), DatagramSequenceNumber::from_masked_u32(0x334455)),
+        ]);
+    }
 
     #[test]
     fn datagram_range_list_bytes_used_one_range_one_ack() {
