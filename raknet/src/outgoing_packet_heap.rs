@@ -110,8 +110,8 @@ mod tests {
     fn push_low_then_medium_priority_packets() {
         // Arrange
         let mut heap = OutgoingPacketHeap::new();
-        let packet1 = InternalPacket::new(Instant::now(), InternalReliability::Unreliable, InternalOrdering::None, None, vec![1].into_boxed_slice());
-        let packet2 = InternalPacket::new(Instant::now(), InternalReliability::Unreliable, InternalOrdering::None, None, vec![2].into_boxed_slice());
+        let packet1 = InternalPacket::new(Instant::now(), InternalReliability::Unreliable, InternalOrdering::None, None, None, vec![1].into_boxed_slice());
+        let packet2 = InternalPacket::new(Instant::now(), InternalReliability::Unreliable, InternalOrdering::None, None, None, vec![2].into_boxed_slice());
 
         // Act
         heap.push(Priority::Low, packet1);
@@ -127,8 +127,8 @@ mod tests {
     fn push_medium_then_low_priority_packets() {
         // Arrange
         let mut heap = OutgoingPacketHeap::new();
-        let packet1 = InternalPacket::new(Instant::now(), InternalReliability::Unreliable, InternalOrdering::None, None, vec![1].into_boxed_slice());
-        let packet2 = InternalPacket::new(Instant::now(), InternalReliability::Unreliable, InternalOrdering::None, None, vec![2].into_boxed_slice());
+        let packet1 = InternalPacket::new(Instant::now(), InternalReliability::Unreliable, InternalOrdering::None, None, None, vec![1].into_boxed_slice());
+        let packet2 = InternalPacket::new(Instant::now(), InternalReliability::Unreliable, InternalOrdering::None, None, None, vec![2].into_boxed_slice());
 
         // Act
         heap.push(Priority::Medium, packet1);
@@ -144,8 +144,8 @@ mod tests {
     fn push_low_then_highest_priority_packets() {
         // Arrange
         let mut heap = OutgoingPacketHeap::new();
-        let packet1 = InternalPacket::new(Instant::now(), InternalReliability::Unreliable, InternalOrdering::None, None, vec![1].into_boxed_slice());
-        let packet2 = InternalPacket::new(Instant::now(), InternalReliability::Unreliable, InternalOrdering::None, None, vec![2].into_boxed_slice());
+        let packet1 = InternalPacket::new(Instant::now(), InternalReliability::Unreliable, InternalOrdering::None, None, None, vec![1].into_boxed_slice());
+        let packet2 = InternalPacket::new(Instant::now(), InternalReliability::Unreliable, InternalOrdering::None, None, None, vec![2].into_boxed_slice());
 
         // Act
         heap.push(Priority::Low, packet1);
@@ -161,8 +161,8 @@ mod tests {
     fn push_high_then_highest_priority_packets() {
         // Arrange
         let mut heap = OutgoingPacketHeap::new();
-        let packet1 = InternalPacket::new(Instant::now(), InternalReliability::Unreliable, InternalOrdering::None, None, vec![1].into_boxed_slice());
-        let packet2 = InternalPacket::new(Instant::now(), InternalReliability::Unreliable, InternalOrdering::None, None, vec![2].into_boxed_slice());
+        let packet1 = InternalPacket::new(Instant::now(), InternalReliability::Unreliable, InternalOrdering::None, None, None, vec![1].into_boxed_slice());
+        let packet2 = InternalPacket::new(Instant::now(), InternalReliability::Unreliable, InternalOrdering::None, None, None, vec![2].into_boxed_slice());
 
         // Act
         heap.push(Priority::High, packet1);
@@ -178,8 +178,8 @@ mod tests {
     fn push_highest_then_high_priority_packets() {
         // Arrange
         let mut heap = OutgoingPacketHeap::new();
-        let packet1 = InternalPacket::new(Instant::now(), InternalReliability::Unreliable, InternalOrdering::None, None, vec![1].into_boxed_slice());
-        let packet2 = InternalPacket::new(Instant::now(), InternalReliability::Unreliable, InternalOrdering::None, None, vec![2].into_boxed_slice());
+        let packet1 = InternalPacket::new(Instant::now(), InternalReliability::Unreliable, InternalOrdering::None, None, None, vec![1].into_boxed_slice());
+        let packet2 = InternalPacket::new(Instant::now(), InternalReliability::Unreliable, InternalOrdering::None, None, None, vec![2].into_boxed_slice());
 
         // Act
         heap.push(Priority::Highest, packet1);

@@ -20,7 +20,7 @@ impl OutgoingAcknowledgements {
         }
     }
 
-    pub fn insert(&mut self, number: DatagramSequenceNumber, time: Instant) {
+    pub fn handle_datagram(&mut self, number: DatagramSequenceNumber, time: Instant) {
         if self.acks.is_empty() {
             self.oldest_ack_time = Some(time);
         }
@@ -70,7 +70,7 @@ mod tests {
     fn outgoing_acks_is_empty_empty() {
         // Arrange
         let mut acks = OutgoingAcknowledgements::new();
-        acks.insert(DatagramSequenceNumber::from(5u8), Instant::now());
+        acks.handle_datagram(DatagramSequenceNumber::from(5u8), Instant::now());
         acks.pop_range();
 
         // Act/Assert
@@ -81,7 +81,7 @@ mod tests {
     fn outgoing_acks_is_empty_not_empty() {
         // Arrange
         let mut acks = OutgoingAcknowledgements::new();
-        acks.insert(DatagramSequenceNumber::from(5u8), Instant::now());
+        acks.handle_datagram(DatagramSequenceNumber::from(5u8), Instant::now());
 
         // Act/Assert
         assert!(!acks.is_empty());
@@ -100,7 +100,7 @@ mod tests {
     fn outgoing_acks_pop_range_one_range_start_end_same() {
         // Arrange
         let mut acks = OutgoingAcknowledgements::new();
-        acks.insert(DatagramSequenceNumber::from(1u8), Instant::now());
+        acks.handle_datagram(DatagramSequenceNumber::from(1u8), Instant::now());
 
         // Act
         let range = acks.pop_range();
@@ -115,9 +115,9 @@ mod tests {
     fn outgoing_acks_pop_range_one_range_start_end_different() {
         // Arrange
         let mut acks = OutgoingAcknowledgements::new();
-        acks.insert(DatagramSequenceNumber::from(1u8), Instant::now());
-        acks.insert(DatagramSequenceNumber::from(2u8), Instant::now());
-        acks.insert(DatagramSequenceNumber::from(3u8), Instant::now());
+        acks.handle_datagram(DatagramSequenceNumber::from(1u8), Instant::now());
+        acks.handle_datagram(DatagramSequenceNumber::from(2u8), Instant::now());
+        acks.handle_datagram(DatagramSequenceNumber::from(3u8), Instant::now());
 
         // Act
         let range = acks.pop_range();
@@ -132,16 +132,16 @@ mod tests {
     fn outgoing_acks_pop_range_multiple_ranges() {
         // Arrange
         let mut acks = OutgoingAcknowledgements::new();
-        acks.insert(DatagramSequenceNumber::from(1u8), Instant::now());
+        acks.handle_datagram(DatagramSequenceNumber::from(1u8), Instant::now());
 
-        acks.insert(DatagramSequenceNumber::from(5u8), Instant::now());
-        acks.insert(DatagramSequenceNumber::from(6u8), Instant::now());
-        acks.insert(DatagramSequenceNumber::from(7u8), Instant::now());
+        acks.handle_datagram(DatagramSequenceNumber::from(5u8), Instant::now());
+        acks.handle_datagram(DatagramSequenceNumber::from(6u8), Instant::now());
+        acks.handle_datagram(DatagramSequenceNumber::from(7u8), Instant::now());
 
-        acks.insert(DatagramSequenceNumber::from(10u8), Instant::now());
-        acks.insert(DatagramSequenceNumber::from(11u8), Instant::now());
+        acks.handle_datagram(DatagramSequenceNumber::from(10u8), Instant::now());
+        acks.handle_datagram(DatagramSequenceNumber::from(11u8), Instant::now());
 
-        acks.insert(DatagramSequenceNumber::from(20u8), Instant::now());
+        acks.handle_datagram(DatagramSequenceNumber::from(20u8), Instant::now());
 
         // Act
         let range1 = acks.pop_range();
@@ -172,7 +172,7 @@ mod tests {
         // Arrange
         let mut acks = OutgoingAcknowledgements::new();
         let time = Instant::now();
-        acks.insert(DatagramSequenceNumber::from(1u8), time);
+        acks.handle_datagram(DatagramSequenceNumber::from(1u8), time);
 
         // Act/Assert
         assert!(!acks.should_send_acks(time + (TIME_BEFORE_SENDING_ACKS - Duration::from_millis(1))));
@@ -185,10 +185,10 @@ mod tests {
         // Arrange
         let mut acks = OutgoingAcknowledgements::new();
         let time = Instant::now();
-        acks.insert(DatagramSequenceNumber::from(1u8), time);
-        acks.insert(DatagramSequenceNumber::from(2u8), time + Duration::from_millis(100));
-        acks.insert(DatagramSequenceNumber::from(10u8), time + Duration::from_millis(200));
-        acks.insert(DatagramSequenceNumber::from(11u8), time + Duration::from_millis(300));
+        acks.handle_datagram(DatagramSequenceNumber::from(1u8), time);
+        acks.handle_datagram(DatagramSequenceNumber::from(2u8), time + Duration::from_millis(100));
+        acks.handle_datagram(DatagramSequenceNumber::from(10u8), time + Duration::from_millis(200));
+        acks.handle_datagram(DatagramSequenceNumber::from(11u8), time + Duration::from_millis(300));
 
         // Act/Assert
         assert!(!acks.should_send_acks(time + (TIME_BEFORE_SENDING_ACKS - Duration::from_millis(1))));

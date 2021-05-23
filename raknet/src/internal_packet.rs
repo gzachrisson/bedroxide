@@ -79,7 +79,6 @@ pub struct InternalPacket {
 }
 
 impl InternalPacket {
-    #[allow(dead_code)]
     pub fn new(creation_time: Instant, reliability: InternalReliability, ordering: InternalOrdering, split_packet_header: Option<SplitPacketHeader>, receipt: Option<u32>, payload: Box<[u8]>) -> Self {
         InternalPacket {
             creation_time,
@@ -548,7 +547,7 @@ mod tests {
     #[test]
     fn write_unreliable_packet() {
         // Arrange
-        let packet = InternalPacket::new(Instant::now(), InternalReliability::Unreliable, InternalOrdering::None, None, vec![0x12, 0x34].into_boxed_slice());
+        let packet = InternalPacket::new(Instant::now(), InternalReliability::Unreliable, InternalOrdering::None, None, None, vec![0x12, 0x34].into_boxed_slice());
         let mut buf = Vec::new();
 
         // Act
@@ -570,6 +569,7 @@ mod tests {
             InternalReliability::Unreliable,
             InternalOrdering::None,
             Some(SplitPacketHeader::new(0x11223344, 0x1357, 0x01234567)),
+            None,
             vec![0x12, 0x34].into_boxed_slice());
         let mut buf = Vec::new();
 
@@ -598,6 +598,7 @@ mod tests {
                 ordering_index: OrderingIndex::from_masked_u32(0x112233),
                 ordering_channel_index: 0x05
             },
+            None,
             None,
             vec![0x12, 0x34].into_boxed_slice());
         let mut buf = Vec::new();
@@ -628,6 +629,7 @@ mod tests {
                 ordering_channel_index: 0x05
             },
             Some(SplitPacketHeader::new(0x11223344, 0x1357, 0x01234567)),
+            None,
             vec![0x12, 0x34].into_boxed_slice());
         let mut buf = Vec::new();
 
@@ -656,6 +658,7 @@ mod tests {
             InternalReliability::Reliable(Some(MessageNumber::from_masked_u32(0x123456))),
             InternalOrdering::None,
             None,
+            None,
             vec![0x12, 0x34].into_boxed_slice());
         let mut buf = Vec::new();
 
@@ -679,6 +682,7 @@ mod tests {
             InternalReliability::Reliable(Some(MessageNumber::from_masked_u32(0x123456))),
             InternalOrdering::None,
             Some(SplitPacketHeader::new(0x11223344, 0x1357, 0x01234567)),
+            None,
             vec![0x12, 0x34].into_boxed_slice());
         let mut buf = Vec::new();
 
@@ -708,6 +712,7 @@ mod tests {
                 ordering_channel_index: 0x05
             },
             None,
+            None,
             vec![0x12, 0x34].into_boxed_slice());
         let mut buf = Vec::new();
 
@@ -736,6 +741,7 @@ mod tests {
                 ordering_channel_index: 0x05
             },
             Some(SplitPacketHeader::new(0x11223344, 0x1357, 0x01234567)),
+            None,
             vec![0x12, 0x34].into_boxed_slice());
         let mut buf = Vec::new();
 
@@ -768,6 +774,7 @@ mod tests {
                 ordering_channel_index: 0x05
             },
             None,
+            None,
             vec![0x12, 0x34].into_boxed_slice());
         let mut buf = Vec::new();
 
@@ -798,6 +805,7 @@ mod tests {
                 ordering_channel_index: 0x05
             },
             Some(SplitPacketHeader::new(0x11223344, 0x1357, 0x01234567)),
+            None,
             vec![0x12, 0x34].into_boxed_slice());
         let mut buf = Vec::new();
 

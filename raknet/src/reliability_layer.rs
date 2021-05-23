@@ -78,7 +78,7 @@ impl ReliabilityLayer {
                 debug!("Received a datagram of packets. is_packet_pair={}, is_continuous_send={}, needs_data_arrival_rate={}, datagram_number={}", 
                 is_packet_pair, is_continuous_send, needs_data_arrival_rate, datagram_number);
                 self.outgoing_nacks.handle_datagram(datagram_number);
-                self.outgoing_acks.insert(datagram_number, time);
+                self.outgoing_acks.handle_datagram(datagram_number, time);
 
                 match self.process_incoming_packets(reader, time) {
                     Ok(packets) => return Some(packets),
