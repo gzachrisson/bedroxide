@@ -112,7 +112,7 @@ impl ReliabilityLayer {
         // TODO: Resend not ACKed packets
         // TODO: Send outgoing packets        
         let mut datagram = PacketDatagram::new(self.acknowledge_handler.get_next_datagram_number());
-        loop {
+        while self.acknowledge_handler.has_room_for_datagram() {
             while let Some(packet) = self.outgoing_packet_heap.peek() {
                 if !datagram.has_room_for(packet, self.mtu) {
                     // Datagram full, break out of loop and send datagram
@@ -130,7 +130,7 @@ impl ReliabilityLayer {
                 // Nothing more to send, break out of loop
                 break;
             }
-            match self.acknowledge_handler.process_outgoing_datagram(datagram, &mut self.send_buffer) {
+            match self.acknowledge_handler.process_outgoing_datagram(datagram, time, &mut self.send_buffer) {
                 Ok(()) => {
                     communicator.send_datagram(&self.send_buffer, self.remote_addr);
                     datagram = PacketDatagram::new(self.acknowledge_handler.get_next_datagram_number());
@@ -141,7 +141,6 @@ impl ReliabilityLayer {
                 }
             }
         }
-
     }
 
     /// Enqueues a packet for sending.
