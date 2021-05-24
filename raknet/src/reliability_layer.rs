@@ -43,7 +43,7 @@ pub struct ReliabilityLayer {
 impl ReliabilityLayer {
     pub fn new(remote_addr: SocketAddr, remote_guid: u64, mtu: u16) -> Self {
         ReliabilityLayer {
-            acknowledge_handler: AcknowledgeHandler::new(),
+            acknowledge_handler: AcknowledgeHandler::new(remote_addr, remote_guid),
             outgoing_acks: OutgoingAcknowledgements::new(),
             outgoing_nacks: OutgoingNacks::new(),
             outgoing_packet_heap: OutgoingPacketHeap::new(),
@@ -61,14 +61,18 @@ impl ReliabilityLayer {
     }
 
     /// Processes an incoming datagram.
-    pub fn process_incoming_datagram(&mut self, payload: &[u8], time: Instant, _communicator: &mut Communicator<impl DatagramSocket>) -> Option<Vec<Packet>> {
+    pub fn process_incoming_datagram(&mut self, payload: &[u8], time: Instant, communicator: &mut Communicator<impl DatagramSocket>) -> Option<Vec<Packet>> {
         self.time_last_datagram_arrived = time;
         let mut reader = DataReader::new(payload);
         match DatagramHeader::read(&mut reader) {
             Ok(DatagramHeader::Ack { data_arrival_rate }) => {
                 debug!("Received ACK. data_arrival_rate={:?}", data_arrival_rate);
-                // TODO: Send ACK receipt to user for unreliable packets with ACK receipt requested (and remove packets from list)
-                // TODO: Remove ACK:ed packets from resend list (and send ACK receipt to user)
+                match DatagramRangeList::read(&mut reader) {
+                    Ok(datagram_range_list) => {
+                        self.acknowledge_handler.process_incoming_ack(datagram_range_list, communicator);
+                    },
+                    Err(err) => error!("Error reading ACKs: {:?}", err),
+                }
             },
             Ok(DatagramHeader::Nack) => {
                 debug!("Received NACK");
@@ -286,9 +290,8 @@ impl ReliabilityLayer {
         let mut packets = Vec::new();
         while reader.has_more() {
             let mut packet = InternalPacket::read(time, &mut reader)?;
-            debug!("Received a packet:\n{:?}", packet);
+            debug!("Received a packet: {:?}, {:?}, {:?}", packet.reliability(), packet.ordering(), packet.split_packet_header());
             if let InternalReliability::Reliable(Some(reliable_message_number)) = packet.reliability() {
-                debug!("Packet is reliable with message number {}", reliable_message_number);
                 if self.reliable_message_number_handler.should_discard_packet(reliable_message_number) {
                     debug!("Dropping packet with duplicate message number: {}", reliable_message_number);
                     continue;

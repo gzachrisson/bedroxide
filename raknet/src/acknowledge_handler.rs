@@ -1,12 +1,16 @@
-use std::{collections::HashMap, time::{Duration, Instant}};
+use std::{collections::HashMap, net::SocketAddr, time::{Duration, Instant}};
 use log::debug;
 
 use crate::{
+    communicator::Communicator,
     datagram_range_list::DatagramRangeList,
+    socket::DatagramSocket,
     error::Result,
     internal_packet::InternalPacket,
     number::DatagramSequenceNumber,
-    packet_datagram::PacketDatagram
+    packet_datagram::PacketDatagram,
+    peer_event::PeerEvent,
+    send_receipt::SendReceipt,
 };
 
 struct DatagramItem {
@@ -17,13 +21,17 @@ struct DatagramItem {
 pub struct AcknowledgeHandler {
     datagrams: HashMap<DatagramSequenceNumber, DatagramItem>,
     next_datagram_number: DatagramSequenceNumber,
+    remote_addr: SocketAddr,
+    remote_guid: u64,    
 }
 
 impl AcknowledgeHandler {
-    pub fn new() -> Self {
+    pub fn new(remote_addr: SocketAddr, remote_guid: u64,) -> Self {
         AcknowledgeHandler {
             datagrams: HashMap::new(),
             next_datagram_number: DatagramSequenceNumber::ZERO,
+            remote_addr,
+            remote_guid,
         }
     }
 
@@ -33,15 +41,33 @@ impl AcknowledgeHandler {
 
     pub fn process_outgoing_datagram(&mut self, datagram: PacketDatagram, time: Instant, buf: &mut Vec<u8>) -> Result<()> {
         buf.clear();
-        debug!("Processing datagram: {:?}", datagram);
         datagram.write(buf)?;
-        debug!("Datagram bytes: {:?}", crate::utils::to_hex(&buf, 100));
         let timeout_time = time + Self::get_retransmission_timeout();
         self.datagrams.insert(self.next_datagram_number, DatagramItem { timeout_time, packets: datagram.into_packets() });
         self.next_datagram_number = self.next_datagram_number.wrapping_add(DatagramSequenceNumber::ONE);
         Ok(())
     }
     
+    pub fn process_incoming_ack(&mut self, datagram_range_list: DatagramRangeList, communicator: &mut Communicator<impl DatagramSocket>) {
+        for range in datagram_range_list.into_vec() {
+            let mut number = range.start();
+            while number.wrapping_less_than(range.end()) || number == range.end() {
+                if let Some(datagram) = self.datagrams.remove(&number) {
+                    debug!("ACK received for datagram {}", number);
+                    for packet in datagram.packets {
+                        if let Some(receipt) = packet.receipt() {
+                            debug!("Sending receipt {}", receipt);
+                            communicator.send_event(PeerEvent::SendReceipt(SendReceipt::new(self.remote_addr, self.remote_guid, receipt)));
+                        }
+                    }
+                } else {
+                    debug!("Received ACK for unknown datagram {}", number);
+                }
+                number = number.wrapping_add(DatagramSequenceNumber::ONE);
+            }
+        }        
+    }
+
     pub fn process_incoming_nack(&mut self, time: Instant, datagram_range_list: DatagramRangeList) {
         for range in datagram_range_list.into_vec() {
             let mut number = range.start();

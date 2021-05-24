@@ -8,6 +8,7 @@ pub use self::{
     peer::{Peer, Command},
     peer_event::PeerEvent,
     reader::DataRead,
+    send_receipt::SendReceipt,
     writer::DataWrite,
 };
 
@@ -39,6 +40,7 @@ mod peer_event;
 mod reader;
 mod reliable_message_number_handler;
 mod reliability_layer;
+mod send_receipt;
 mod socket;
 mod split_packet_handler;
 mod utils;
