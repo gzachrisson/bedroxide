@@ -3,6 +3,7 @@ pub use crossbeam_channel as channel;
 pub use self::{
     config::Config,
     error::{Error, Result, ReadError, WriteError},
+    incoming_connection::IncomingConnection,
     number::OrderingChannelIndex,
     packet::{Packet, Reliability, Ordering, Priority},
     peer::{Peer, Command},
@@ -23,6 +24,7 @@ mod datagram_heap;
 mod datagram_range;
 mod datagram_range_list;
 mod error;
+mod incoming_connection;
 mod internal_packet;
 mod message_ids;
 mod messages;

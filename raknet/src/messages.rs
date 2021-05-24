@@ -388,6 +388,41 @@ impl MessageWrite for ConnectionRequestAcceptedMessage {
 }
 
 #[derive(Debug)]
+pub struct NewIncomingConnectionMessage {
+    pub server_addr: SocketAddr,
+    pub client_ip_list: [SocketAddr; MAX_NUMBER_OF_INTERNAL_IDS],
+    pub send_ping_time: u64,
+    pub send_pong_time: u64,
+}
+
+impl MessageRead for NewIncomingConnectionMessage {
+    fn read_message(reader: &mut dyn DataRead) -> Result<Self> {
+        reader.read_u8_and_compare(MessageId::NewIncomingConnection.into())?;
+        let server_addr = reader.read_socket_addr()?;
+        let mut client_ip_list = [SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0); MAX_NUMBER_OF_INTERNAL_IDS];
+        for ip in client_ip_list.iter_mut() {
+            *ip = reader.read_socket_addr()?;
+        }
+        let send_ping_time = reader.read_u64_be()?;
+        let send_pong_time = reader.read_u64_be()?;
+        Ok(NewIncomingConnectionMessage { server_addr, client_ip_list, send_ping_time, send_pong_time })
+    }
+}
+
+impl MessageWrite for NewIncomingConnectionMessage {
+    fn write_message(&self, writer: &mut dyn DataWrite) -> Result<()> {
+        writer.write_u8(MessageId::NewIncomingConnection.into())?;
+        writer.write_socket_addr(&self.server_addr)?;
+        for ip in self.client_ip_list.iter() {
+            writer.write_socket_addr(ip)?;
+        }
+        writer.write_u64_be(self.send_ping_time)?;
+        writer.write_u64_be(self.send_pong_time)?;
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
 pub struct IncompatibleProtocolVersionMessage {
     pub protocol_version: u8,
     pub guid: u64,

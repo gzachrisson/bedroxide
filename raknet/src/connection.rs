@@ -3,8 +3,9 @@ use log::{debug, error};
 
 use crate::{
     communicator::Communicator,
+    incoming_connection::IncomingConnection,
     message_ids::MessageId,
-    messages::{ConnectionRequestMessage, ConnectionRequestAcceptedMessage},
+    messages::{ConnectionRequestMessage, ConnectionRequestAcceptedMessage, NewIncomingConnectionMessage},
     packet::{Ordering, Packet, Priority, Reliability},
     PeerEvent,
     reader::{DataReader, MessageRead},
@@ -57,6 +58,8 @@ impl Connection {
     /// Performs various connection related actions such as sending acknowledgements
     /// and resending dropped packets.
     pub fn update(&mut self, time: Instant, communicator: &mut Communicator<impl DatagramSocket>) {
+        // TODO: Read outgoing packets from the user and send to the reliability layer
+        // TODO: Send a connected ping if a reliable packet has not been sent within half the timeout time
         self.reliability_layer.update(time, communicator);
     }
 
@@ -85,7 +88,7 @@ impl Connection {
         } else {
             match MessageId::try_from(packet.payload()[0]) {
                 Ok(MessageId::ConnectionRequest) => {}, // TODO: Implement
-                Ok(MessageId::NewIncomingConnection) => {}, // TODO: Implement
+                Ok(MessageId::NewIncomingConnection) => self.handle_new_incoming_connection(packet.payload(), communicator, time),
                 Ok(MessageId::ConnectedPong) => {}, // TODO: Implement
                 Ok(MessageId::ConnectedPing) => {}, // TODO: Implement
                 Ok(MessageId::DisconnectionNotification) => {}, // TODO: Implement
@@ -113,6 +116,25 @@ impl Connection {
                     server_time: time.saturating_duration_since(self.peer_creation_time).as_millis() as u64,
                 };
                 self.send_connected_message(time, &message);
+            },
+            Err(err) => error!("Failed reading connection request message: {}", err),
+        }
+    }
+
+    fn handle_new_incoming_connection(&mut self, payload: &[u8], communicator: &mut Communicator<impl DatagramSocket>, _time: Instant) {
+        let mut reader = DataReader::new(payload);
+        match NewIncomingConnectionMessage::read_message(&mut reader) {
+            Ok(incoming_connection) => {
+                debug!("Received a new incoming connection: {:?}", incoming_connection);
+                if self.state == ConnectionState::HandlingConnectionRequest {
+                    self.state = ConnectionState::Connected;
+                    // TODO: Send connected ping
+                    communicator.send_event(PeerEvent::IncomingConnection(IncomingConnection::new(self.remote_addr, self.remote_guid)));
+                    // TODO: Possibly store the received external IP and the clients internal IPs
+                    // TODO: Store the ping and clock differential
+                } else {
+                    debug!("Already connected, ignoring packet");
+                }
             },
             Err(err) => error!("Failed reading connection request message: {}", err),
         }
