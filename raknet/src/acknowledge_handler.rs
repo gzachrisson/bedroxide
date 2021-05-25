@@ -6,7 +6,7 @@ use crate::{
     datagram_range_list::DatagramRangeList,
     socket::DatagramSocket,
     error::Result,
-    internal_packet::InternalPacket,
+    internal_packet::{InternalPacket, InternalReliability},
     number::DatagramSequenceNumber,
     packet_datagram::PacketDatagram,
     peer_event::PeerEvent,
@@ -39,6 +39,34 @@ impl AcknowledgeHandler {
         self.next_datagram_number
     }
 
+    pub fn get_packets_to_resend(&mut self, time: Instant, communicator: &mut Communicator<impl DatagramSocket>) -> Vec<InternalPacket> {
+        let timed_out_datagram_numbers: Vec<DatagramSequenceNumber> = self.datagrams.iter().filter_map(|(number, datagram)|
+            if time >= datagram.timeout_time || self.get_next_datagram_number().wrapping_less_than(*number) {
+                Some(*number)
+            } else {
+                None
+            }
+        ).collect();
+
+        let remote_addr = self.remote_addr;
+        let remote_guid = self.remote_guid;
+        timed_out_datagram_numbers.iter().filter_map(|number| {
+            if let Some(datagram) = self.datagrams.remove(number) {
+                Some(datagram.packets)
+            } else {
+                None
+            }
+        }).flatten().filter(|packet| if let InternalReliability::Unreliable = packet.reliability() {
+            if let Some(receipt) = packet.receipt() {
+                communicator.send_event(PeerEvent::SendReceiptLoss(SendReceipt::new(remote_addr, remote_guid, receipt)));
+            }
+            false
+        } else {
+            true
+        })
+        .collect()
+    }
+
     pub fn process_outgoing_datagram(&mut self, datagram: PacketDatagram, time: Instant, buf: &mut Vec<u8>) -> Result<()> {
         buf.clear();
         datagram.write(buf)?;
@@ -55,7 +83,7 @@ impl AcknowledgeHandler {
                 if let Some(datagram) = self.datagrams.remove(&number) {
                     for packet in datagram.packets {
                         if let Some(receipt) = packet.receipt() {
-                            communicator.send_event(PeerEvent::SendReceipt(SendReceipt::new(self.remote_addr, self.remote_guid, receipt)));
+                            communicator.send_event(PeerEvent::SendReceiptAcked(SendReceipt::new(self.remote_addr, self.remote_guid, receipt)));
                         }
                     }
                 } else {

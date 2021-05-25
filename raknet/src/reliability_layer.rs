@@ -116,8 +116,9 @@ impl ReliabilityLayer {
             self.send_nacks(communicator);
         }
         
+        let _packets_to_resend = self.acknowledge_handler.get_packets_to_resend(time, communicator);
         // TODO: Resend not ACKed packets
-        // TODO: Send outgoing packets        
+
         let mut datagram = PacketDatagram::new(self.acknowledge_handler.get_next_datagram_number());
         while self.acknowledge_handler.has_room_for_datagram() {
             while let Some(packet) = self.outgoing_packet_heap.peek() {
