@@ -1,6 +1,6 @@
 use std::{net::SocketAddr, collections::HashMap, time::Instant};
 use crossbeam_channel::{unbounded, Receiver};
-use log::{error, debug};
+use log::error;
 
 use crate::{
     communicator::Communicator,
@@ -10,7 +10,6 @@ use crate::{
     offline_packet_handler::OfflinePacketHandler,
     PeerEvent,
     socket::DatagramSocket,
-    utils,
 };
 
 pub struct ConnectionManager<T: DatagramSocket> {
@@ -51,7 +50,6 @@ impl<T: DatagramSocket> ConnectionManager<T> {
             match communicator.socket().receive_datagram(self.receive_buffer.as_mut())
             {
                 Ok((payload, addr)) => {
-                    debug!("Received {} bytes from {}: {}", payload.len(), addr, utils::to_hex(&payload, 40));
                     if !self.offline_packet_handler.process_offline_packet(time, addr, payload, communicator, &mut self.connections) {
                         if let Some(conn) = self.connections.get_mut(&addr) {
                             conn.process_incoming_datagram(payload, time, communicator);

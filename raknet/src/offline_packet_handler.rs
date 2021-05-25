@@ -213,9 +213,8 @@ impl OfflinePacketHandler {
         let mut payload = Vec::new();
         match message.write_message(&mut payload) {
             Ok(()) => {
-                match communicator.socket().send_datagram(&payload, dest) {
-                    Ok(_) => debug!("Sent {} bytes to {}: {}", payload.len(), dest, utils::to_hex(&payload, 40)),
-                    Err(err) => error!("Failed sending message: {:?}", err),
+                if let Err(err) = communicator.socket().send_datagram(&payload, dest) {
+                    error!("Failed sending message: {:?}", err);
                 }
             },
             Err(err) => error!("Failed writing message to buffer: {:?}", err),

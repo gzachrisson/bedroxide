@@ -53,10 +53,8 @@ impl AcknowledgeHandler {
             let mut number = range.start();
             while number.wrapping_less_than(range.end()) || number == range.end() {
                 if let Some(datagram) = self.datagrams.remove(&number) {
-                    debug!("ACK received for datagram {}", number);
                     for packet in datagram.packets {
                         if let Some(receipt) = packet.receipt() {
-                            debug!("Sending receipt {}", receipt);
                             communicator.send_event(PeerEvent::SendReceipt(SendReceipt::new(self.remote_addr, self.remote_guid, receipt)));
                         }
                     }

@@ -144,7 +144,6 @@ impl Connection {
         let mut reader = DataReader::new(payload);
         match ConnectedPingMessage::read_message(&mut reader) {
             Ok(ping) => {
-                debug!("Received a connected ping: {:?}", ping);
                 let pong = ConnectedPongMessage { send_ping_time: ping.time, send_pong_time: self.get_peer_time(time) };
                 self.send_connected_message(time, &pong, Reliability::Unreliable, Ordering::None);
             },
