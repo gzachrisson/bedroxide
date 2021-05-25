@@ -5,7 +5,7 @@ use crate::{
     communicator::Communicator,
     incoming_connection::IncomingConnection,
     message_ids::MessageId,
-    messages::{ConnectedPingMessage, ConnectionRequestMessage, ConnectionRequestAcceptedMessage, NewIncomingConnectionMessage},
+    messages::{ConnectedPingMessage, ConnectedPongMessage, ConnectionRequestMessage, ConnectionRequestAcceptedMessage, NewIncomingConnectionMessage},
     packet::{Ordering, Packet, Priority, Reliability},
     PeerEvent,
     reader::{DataReader, MessageRead},
@@ -90,7 +90,7 @@ impl Connection {
                 Ok(MessageId::ConnectionRequest) => {}, // TODO: Implement
                 Ok(MessageId::NewIncomingConnection) => self.handle_new_incoming_connection(packet.payload(), communicator, time),
                 Ok(MessageId::ConnectedPong) => {}, // TODO: Implement
-                Ok(MessageId::ConnectedPing) => {}, // TODO: Implement
+                Ok(MessageId::ConnectedPing) => self.handle_connected_ping(packet.payload(), time),
                 Ok(MessageId::DisconnectionNotification) => {}, // TODO: Implement
                 Ok(MessageId::DetectLostConnections) => {}, // TODO: Implement
                 Ok(MessageId::InvalidPassword) => {}, // TODO: Implement
@@ -135,6 +135,18 @@ impl Connection {
                 } else {
                     debug!("Already connected, ignoring packet");
                 }
+            },
+            Err(err) => error!("Failed reading connection request message: {}", err),
+        }
+    }
+
+    fn handle_connected_ping(&mut self, payload: &[u8], time: Instant) {
+        let mut reader = DataReader::new(payload);
+        match ConnectedPingMessage::read_message(&mut reader) {
+            Ok(ping) => {
+                debug!("Received a connected ping: {:?}", ping);
+                let pong = ConnectedPongMessage { send_ping_time: ping.time, send_pong_time: self.get_peer_time(time) };
+                self.send_connected_message(time, &pong, Reliability::Unreliable, Ordering::None);
             },
             Err(err) => error!("Failed reading connection request message: {}", err),
         }
