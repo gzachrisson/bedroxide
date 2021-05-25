@@ -5,7 +5,7 @@ use crate::{
     communicator::Communicator,
     incoming_connection::IncomingConnection,
     message_ids::MessageId,
-    messages::{ConnectionRequestMessage, ConnectionRequestAcceptedMessage, NewIncomingConnectionMessage},
+    messages::{ConnectedPingMessage, ConnectionRequestMessage, ConnectionRequestAcceptedMessage, NewIncomingConnectionMessage},
     packet::{Ordering, Packet, Priority, Reliability},
     PeerEvent,
     reader::{DataReader, MessageRead},
@@ -115,22 +115,22 @@ impl Connection {
                     client_time: connection_request.time,
                     server_time: time.saturating_duration_since(self.peer_creation_time).as_millis() as u64,
                 };
-                self.send_connected_message(time, &message);
+                self.send_connected_message(time, &message, Reliability::Reliable, Ordering::Ordered(0));
             },
             Err(err) => error!("Failed reading connection request message: {}", err),
         }
     }
 
-    fn handle_new_incoming_connection(&mut self, payload: &[u8], communicator: &mut Communicator<impl DatagramSocket>, _time: Instant) {
+    fn handle_new_incoming_connection(&mut self, payload: &[u8], communicator: &mut Communicator<impl DatagramSocket>, time: Instant) {
         let mut reader = DataReader::new(payload);
         match NewIncomingConnectionMessage::read_message(&mut reader) {
             Ok(incoming_connection) => {
                 debug!("Received a new incoming connection: {:?}", incoming_connection);
                 if self.state == ConnectionState::HandlingConnectionRequest {
                     self.state = ConnectionState::Connected;
-                    // TODO: Send connected ping
+                    self.send_connected_ping(time);
                     communicator.send_event(PeerEvent::IncomingConnection(IncomingConnection::new(self.remote_addr, self.remote_guid)));
-                    // TODO: Possibly store the received external IP and the clients internal IPs
+                    // TODO: Possibly store the received external IP and the client's internal IPs
                     // TODO: Store the ping and clock differential
                 } else {
                     debug!("Already connected, ignoring packet");
@@ -140,10 +140,20 @@ impl Connection {
         }
     }
 
-    fn send_connected_message(&mut self, time: Instant, message: &dyn MessageWrite) {
+    fn send_connected_ping(&mut self, time: Instant) {
+        let ping = ConnectedPingMessage { time: self.get_peer_time(time) };
+        self.send_connected_message(time, &ping, Reliability::Unreliable, Ordering::None);
+    }
+
+    /// Returns the time in milliseconds since the `Peer` was created.
+    fn get_peer_time(&self, time: Instant) -> u64 {
+        time.saturating_duration_since(self.peer_creation_time).as_millis() as u64
+    }
+
+    fn send_connected_message(&mut self, time: Instant, message: &dyn MessageWrite, reliability: Reliability, ordering: Ordering) {
         let mut payload = Vec::new();
         match message.write_message(&mut payload) {
-            Ok(()) => self.reliability_layer.send_packet(time, Priority::Highest, Reliability::Reliable, Ordering::Ordered(0), None, payload.into_boxed_slice()),
+            Ok(()) => self.reliability_layer.send_packet(time, Priority::Highest, reliability, ordering, None, payload.into_boxed_slice()),
             Err(err) => error!("Failed writing message to buffer: {:?}", err),
         }
     }

@@ -9,6 +9,51 @@ use crate::{
 };
 
 #[derive(Debug)]
+pub struct ConnectedPingMessage {
+    pub time: u64,
+}
+
+impl MessageRead for ConnectedPingMessage {
+    fn read_message(reader: &mut dyn DataRead) -> Result<Self> {
+        reader.read_u8_and_compare(MessageId::ConnectedPing.into())?;
+        let time = reader.read_u64_be()?;
+        Ok(ConnectedPingMessage { time })
+    }
+}
+
+impl MessageWrite for ConnectedPingMessage {
+    fn write_message(&self, writer: &mut dyn DataWrite) -> Result<()> {
+        writer.write_u8(MessageId::ConnectedPing.into())?;
+        writer.write_u64_be(self.time)?;
+        Ok(())      
+    }
+}
+
+#[derive(Debug)]
+pub struct ConnectedPongMessage {
+    pub send_ping_time: u64,
+    pub send_pong_time: u64,
+}
+
+impl MessageRead for ConnectedPongMessage {
+    fn read_message(reader: &mut dyn DataRead) -> Result<Self> {
+        reader.read_u8_and_compare(MessageId::ConnectedPong.into())?;
+        let send_ping_time = reader.read_u64_be()?;
+        let send_pong_time = reader.read_u64_be()?;
+        Ok(ConnectedPongMessage { send_ping_time, send_pong_time })
+    }
+}
+
+impl MessageWrite for ConnectedPongMessage {
+    fn write_message(&self, writer: &mut dyn DataWrite) -> Result<()> {
+        writer.write_u8(MessageId::ConnectedPong.into())?;
+        writer.write_u64_be(self.send_ping_time)?;
+        writer.write_u64_be(self.send_pong_time)?;
+        Ok(())      
+    }
+}
+
+#[derive(Debug)]
 pub struct UnconnectedPingMessage {
     pub message_id: MessageId,
     pub time: u64,
