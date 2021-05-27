@@ -116,22 +116,39 @@ impl ReliabilityLayer {
             self.send_nacks(communicator);
         }
         
-        let _packets_to_resend = self.acknowledge_handler.get_packets_to_resend(time, communicator);
-        // TODO: Resend not ACKed packets
-
         let mut datagram = PacketDatagram::new(self.acknowledge_handler.get_next_datagram_number());
-        while self.acknowledge_handler.has_room_for_datagram() {
-            while let Some(packet) = self.outgoing_packet_heap.peek() {
-                if !datagram.has_room_for(packet, self.mtu) {
-                    // Datagram full, break out of loop and send datagram
-                    break;
+        
+        // Resend packets that have not received an ACK.
+        // NOTE: The last datagram will be sent after this loop when sending
+        // outgoing packets. This is done to fit as many packets
+        // as possible in one datagram.
+        let packets = self.acknowledge_handler.get_packets_to_resend(time, communicator);
+        for packet in packets {
+            if !datagram.has_room_for(&packet, self.mtu)  {
+                match self.acknowledge_handler.process_outgoing_datagram(datagram, time, &mut self.send_buffer) {
+                    Ok(()) => communicator.send_datagram(&self.send_buffer, self.remote_addr),
+                    Err(err) => error!("Failed processing outgoing datagram: {:?}", err),
                 }
-                if let Some(mut packet) = self.outgoing_packet_heap.pop() {
-                    if let InternalReliability::Reliable(None) = packet.reliability() {
-                        let realiable_message_number = self.reliable_message_number_handler.get_and_increment_reliable_message_number();
-                        packet.set_reliability(InternalReliability::Reliable(Some(realiable_message_number)));
+                datagram = PacketDatagram::new(self.acknowledge_handler.get_next_datagram_number());
+            }
+            datagram.push(packet);            
+        }       
+
+        loop {
+            if self.acknowledge_handler.has_room_for_datagram() {
+                while let Some(packet) = self.outgoing_packet_heap.peek() {
+                    if !datagram.has_room_for(packet, self.mtu) {
+                        // Datagram full, break out of loop and send datagram
+                        break;
                     }
-                    datagram.push(packet);
+                    if let Some(mut packet) = self.outgoing_packet_heap.pop() {
+                        // Set the reliability number late to avoid big holes in the number sequence
+                        if let InternalReliability::Reliable(None) = packet.reliability() {
+                            let realiable_message_number = self.reliable_message_number_handler.get_and_increment_reliable_message_number();
+                            packet.set_reliability(InternalReliability::Reliable(Some(realiable_message_number)));
+                        }
+                        datagram.push(packet);
+                    }
                 }
             }
             if datagram.is_empty() {
@@ -139,15 +156,10 @@ impl ReliabilityLayer {
                 break;
             }
             match self.acknowledge_handler.process_outgoing_datagram(datagram, time, &mut self.send_buffer) {
-                Ok(()) => {
-                    communicator.send_datagram(&self.send_buffer, self.remote_addr);
-                    datagram = PacketDatagram::new(self.acknowledge_handler.get_next_datagram_number());
-                },
-                Err(err) => {
-                    error!("Failed processing outgoing datagram: {:?}", err);
-                    break;
-                }
+                Ok(()) => communicator.send_datagram(&self.send_buffer, self.remote_addr),
+                Err(err) => error!("Failed processing outgoing datagram: {:?}", err),
             }
+            datagram = PacketDatagram::new(self.acknowledge_handler.get_next_datagram_number());
         }
     }
 

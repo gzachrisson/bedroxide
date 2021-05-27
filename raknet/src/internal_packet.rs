@@ -68,7 +68,7 @@ impl SplitPacketHeader {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct InternalPacket {
     creation_time: Instant,
     reliability: InternalReliability,
