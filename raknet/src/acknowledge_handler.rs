@@ -42,13 +42,14 @@ impl AcknowledgeHandler {
     }
 
     pub fn get_packets_to_resend(&mut self, time: Instant, communicator: &mut Communicator<impl DatagramSocket>) -> VecDeque<InternalPacket> {
-        let timed_out_datagram_numbers: Vec<DatagramSequenceNumber> = self.datagrams.iter().filter_map(|(number, datagram)|
+        let mut timed_out_datagram_numbers: Vec<DatagramSequenceNumber> = self.datagrams.iter().filter_map(|(number, datagram)|
             if time >= datagram.timeout_time || self.get_next_datagram_number().wrapping_less_than(*number) {
                 Some(*number)
             } else {
                 None
             }
         ).collect();
+        timed_out_datagram_numbers.sort();
 
         let remote_addr = self.remote_addr;
         let remote_guid = self.remote_guid;

@@ -38,6 +38,7 @@ pub struct ReliabilityLayer {
     next_ordering_index: [OrderingIndex; NUMBER_OF_ORDERING_CHANNELS as usize],
     next_sequencing_index: [SequencingIndex; NUMBER_OF_ORDERING_CHANNELS as usize],
     send_buffer: Vec<u8>,
+    is_dead_connection: bool,
 }
 
 impl ReliabilityLayer {
@@ -57,6 +58,7 @@ impl ReliabilityLayer {
             next_ordering_index: [OrderingIndex::ZERO; NUMBER_OF_ORDERING_CHANNELS as usize],
             next_sequencing_index: [SequencingIndex::ZERO; NUMBER_OF_ORDERING_CHANNELS as usize],
             send_buffer: Vec::new(),
+            is_dead_connection: false,
         }
     }
 
@@ -97,14 +99,18 @@ impl ReliabilityLayer {
         None
     }
 
-    pub fn is_ack_timeout(&self, time: Instant, config: &Config) -> bool {
+    pub fn is_dead_connection(&self) -> bool {
+        self.is_dead_connection
+    }
+
+    fn is_ack_timeout(&self, time: Instant, config: &Config) -> bool {
         self.acknowledge_handler.datagrams_in_flight() > 0 &&
             time.saturating_duration_since(self.time_last_datagram_arrived).as_millis() > config.ack_timeout_in_ms
     }
 
     pub fn update(&mut self, time: Instant, communicator: &mut Communicator<impl DatagramSocket>) {
         if self.is_ack_timeout(time, communicator.config()) {
-            // Connection is dead and will be dropped
+            self.is_dead_connection = true;
             return;
         }
         
@@ -124,7 +130,7 @@ impl ReliabilityLayer {
         // as possible in one datagram.
         let packets = self.acknowledge_handler.get_packets_to_resend(time, communicator);
         for packet in packets {
-            if !datagram.has_room_for(&packet, self.mtu)  {
+            if !datagram.has_room_for(&packet, self.mtu) {
                 match self.acknowledge_handler.process_outgoing_datagram(datagram, time, &mut self.send_buffer) {
                     Ok(()) => communicator.send_datagram(&self.send_buffer, self.remote_addr),
                     Err(err) => error!("Failed processing outgoing datagram: {:?}", err),
@@ -134,6 +140,7 @@ impl ReliabilityLayer {
             datagram.push(packet);            
         }       
 
+        // Send outgoing packets
         loop {
             if self.acknowledge_handler.has_room_for_datagram() {
                 while let Some(packet) = self.outgoing_packet_heap.peek() {
@@ -166,7 +173,6 @@ impl ReliabilityLayer {
     /// Enqueues a packet for sending.
     pub fn send_packet(&mut self, time: Instant, priority: Priority, reliability: Reliability, ordering: Ordering, receipt: Option<u32>, payload: Box<[u8]>) {
         // TODO: Store the time when the last reliable send was done (if reliable)
-        // TODO: Enqueue packet for sending
         if payload.len() > self.get_max_packet_payload_size() as usize {
             // TODO: Split packet
             // TODO: Set reliability to Reliability::Reliable for split packet if unreliable.
