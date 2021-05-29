@@ -317,8 +317,8 @@ impl ReliabilityLayer {
                 }
             }
 
-            if let Some(header) = packet.split_packet_header() {
-                if let Some(defragmented_packet) = self.split_packet_handler.handle_split_packet(header, packet) {
+            if packet.is_split_packet() {
+                if let Some(defragmented_packet) = self.split_packet_handler.handle_split_packet(time, packet) {
                     packet = defragmented_packet;
                 } else {
                     continue;

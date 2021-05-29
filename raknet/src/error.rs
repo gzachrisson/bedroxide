@@ -56,6 +56,8 @@ impl From<WriteError> for Error {
 pub enum ReadError {
     /// The read value is not the same as the compare value.
     CompareFailed,
+    /// The split packet index has already been received.
+    DuplicateSplitPacketIndex,
     /// The header was invalid.
     InvalidHeader,
     /// The IP version read was not 4 or 6.
@@ -66,8 +68,10 @@ pub enum ReadError {
     InvalidString(string::FromUtf8Error),
     /// Not all bytes could be read.
     NotAllBytesRead(usize),
+    /// The index of a split packet was out of range.
+    SplitPacketIndexOutOfRange,
     /// The read zero padding was longer than allowed.
-    TooLongZeroPadding,    
+    TooLongZeroPadding,
 }
 
 impl std::error::Error for ReadError {}
@@ -76,11 +80,13 @@ impl fmt::Display for ReadError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ReadError::CompareFailed => write!(f, "Read data is not the same as the compare value."),
+            ReadError::DuplicateSplitPacketIndex => write!(f, "The split packet index has already been received."),
             ReadError::InvalidHeader => write!(f, "Read invalid header."),
             ReadError::InvalidIpVersion => write!(f, "Received invalid IP version."),
             ReadError::InvalidOfflineMessageId => write!(f, "Received invalid Offline Message ID."),
             ReadError::InvalidString(err) => write!(f, "Could not parse string: {:?}", err),
             ReadError::NotAllBytesRead(c) => write!(f, "Could not read all bytes. Bytes read: {}", c),
+            ReadError::SplitPacketIndexOutOfRange => write!(f, "The index of a split packet was out of range."),
             ReadError::TooLongZeroPadding => write!(f, "The read zero padding was longer than allowed."),
         }
     }

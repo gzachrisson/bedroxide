@@ -1,7 +1,7 @@
 use std::{io, fs::File, net::SocketAddr, thread};
 use simplelog::{SimpleLogger, WriteLogger, LevelFilter, Config, CombinedLogger};
 use log::{info, error};
-use raknet::{Peer, Command, DataWrite};
+use raknet::{Peer, PeerEvent, Command, DataWrite};
 
 use crate::error::Result;
 
@@ -30,9 +30,18 @@ fn run_server() -> Result<()> {
     let event_receiver_thread = thread::spawn(move || {
         loop {
             match event_receiver.recv() {
-                Ok(event) => {
-                    info!("Received event: {:?}", event);
+                Ok(PeerEvent::Packet(packet)) => {
+                    info!("Received packet from addr: {:?}, guid: {} with payload length: {}", packet.addr(), packet.guid(), packet.payload().len());
                 }
+                Ok(PeerEvent::SendReceiptAcked(receipt)) => {
+                    info!("Received send receipt {} ACK from from addr: {:?}, guid: {}", receipt.receipt(), receipt.addr(), receipt.guid());
+                }
+                Ok(PeerEvent::SendReceiptLoss(receipt)) => {
+                    info!("Received send receipt {} LOSS from from addr: {:?}, guid: {}", receipt.receipt(), receipt.addr(), receipt.guid());
+                }
+                Ok(PeerEvent::IncomingConnection(connection)) => {
+                    info!("Incoming connection on addr: {:?}, guid: {}", connection.addr(), connection.guid());
+                }       
                 Err(_) => {
                     info!("Stopping event receiver thread");
                     break;

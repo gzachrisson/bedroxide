@@ -213,6 +213,10 @@ impl InternalPacket {
         self.split_packet_header
     }
 
+    pub fn is_split_packet(&self) -> bool {
+        self.split_packet_header != None
+    }
+
     pub fn get_size_in_bytes(&self) -> u16 {
         self.get_header_size_in_bytes() + self.payload.len() as u16
     }
