@@ -1,8 +1,9 @@
-use std::{net::SocketAddr, thread};
+use std::{io::Read, net::SocketAddr, thread};
 use log::{debug, error, info};
 use raknet::{channel::Sender, Peer, PeerEvent, Command, DataWrite};
+use flate2::read::DeflateDecoder;
 
-use crate::error::Result;
+use crate::{error::Result, utils::to_hex};
 
 pub struct Server {
     raknet_thread: thread::JoinHandle<()>,
@@ -23,6 +24,21 @@ impl Server {
                 match event_receiver.recv() {
                     Ok(PeerEvent::Packet(packet)) => {
                         debug!("Received packet from addr: {:?}, guid: {} with payload length: {}", packet.addr(), packet.guid(), packet.payload().len());
+                        if packet.payload().len() > 0 {
+                            if packet.payload()[0] == 0xfe {
+                                let payload = &packet.payload()[1..];
+                                let mut decoder = DeflateDecoder::new(payload);
+                                let mut buf = Vec::new();
+                                match decoder.read_to_end(&mut buf) {
+                                    Ok(_) => debug!("Decompressed data, size {}: {}", buf.len(), to_hex(&buf, 40)),
+                                    Err(err) => error!("Error decompressing data: {:?}", err),
+                                };
+                            } else {
+                                error!("Invalid message ID: {}", packet.payload()[0]);
+                            }
+                        } else {
+                            error!("Emtpy packet payload");
+                        }
                     }
                     Ok(PeerEvent::SendReceiptAcked(receipt)) => {
                         debug!("Received send receipt {} ACK from from addr: {:?}, guid: {}", receipt.receipt(), receipt.addr(), receipt.guid());

@@ -12,3 +12,4 @@ repository = "https://github.com/gzachrisson/bedroxide"
 log = "0.4"
 raknet = { path = "raknet" }
 simplelog = "0.8.0"
+flate2 = "1.0"

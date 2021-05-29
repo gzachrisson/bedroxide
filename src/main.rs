@@ -5,6 +5,7 @@ use crate::{error::Result, server::Server};
 
 mod error;
 mod server;
+mod utils;
 
 fn main() -> Result<()> {
     CombinedLogger::init(
