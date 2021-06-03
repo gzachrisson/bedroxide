@@ -3,6 +3,8 @@ use simplelog::{SimpleLogger, WriteLogger, LevelFilter, Config, CombinedLogger};
 
 use crate::{error::Result, server::Server};
 
+mod bedrock_packet_handler;
+mod bedrock_reader;
 mod error;
 mod server;
 mod utils;

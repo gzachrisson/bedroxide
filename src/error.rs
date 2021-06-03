@@ -11,6 +11,10 @@ pub enum Error {
     IoError(io::Error),
     /// A wrapper around a RakNet error.
     RakNetError(raknet::Error),
+    /// The VarInt number was too large to fit into the desired type.
+    VarIntTooLarge,
+    /// Not all bytes could be read.
+    NotAllBytesRead,
 }
 
 impl std::error::Error for Error {}
@@ -21,6 +25,8 @@ impl fmt::Display for Error {
             Error::CommandError(s) => write!(f, "Could not send the command: {:?}", s),
             Error::IoError(e) => write!(f, "An IO error occurred: {:?}", e),
             Error::RakNetError(err) => write!(f, "A RakNet error occurred: {:?}", err),
+            Error::VarIntTooLarge => write!(f, "The VarInt number was too large to fit into the desired type."),
+            Error::NotAllBytesRead => write!(f, "Not all bytes could be read."),
         }
     }
 }
