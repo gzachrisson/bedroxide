@@ -1,4 +1,4 @@
-use std::{fmt, io, result};
+use std::{fmt, io, result, str::Utf8Error};
 use raknet::{channel::SendError, Command};
 
 pub type Result<T> = result::Result<T, Error>;
@@ -9,6 +9,8 @@ pub enum Error {
     CommandError(String),
     /// A wrapper around an IO error.
     IoError(io::Error),
+    /// A wrapper around an Utf8Error.
+    Utf8Error(Utf8Error),
     /// A wrapper around a RakNet error.
     RakNetError(raknet::Error),
     /// The VarInt number was too large to fit into the desired type.
@@ -24,7 +26,8 @@ impl fmt::Display for Error {
         match self {
             Error::CommandError(s) => write!(f, "Could not send the command: {:?}", s),
             Error::IoError(e) => write!(f, "An IO error occurred: {:?}", e),
-            Error::RakNetError(err) => write!(f, "A RakNet error occurred: {:?}", err),
+            Error::Utf8Error(e) => write!(f, "An UTF8 conversion error occurred: {:?}", e),
+            Error::RakNetError(e) => write!(f, "A RakNet error occurred: {:?}", e),
             Error::VarIntTooLarge => write!(f, "The VarInt number was too large to fit into the desired type."),
             Error::NotAllBytesRead => write!(f, "Not all bytes could be read."),
         }
@@ -40,6 +43,12 @@ impl From<raknet::Error> for Error {
 impl From<io::Error> for Error {
     fn from(error: io::Error) -> Self {
         Error::IoError(error)
+    }
+}
+
+impl From<Utf8Error> for Error {
+    fn from(error: Utf8Error) -> Self {
+        Error::Utf8Error(error)
     }
 }
 

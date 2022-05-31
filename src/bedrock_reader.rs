@@ -19,6 +19,18 @@ impl<'a> BedrockReader<'a> {
         Ok(buf[0])
     }
 
+    pub fn read_u32_le(&mut self) -> Result<u32> {
+        let mut buf = [0u8; 4];
+        self.cursor.read_exact(&mut buf)?;
+        Ok(u32::from_le_bytes(buf))
+    }
+
+    pub fn read_u32_be(&mut self) -> Result<u32> {
+        let mut buf = [0u8; 4];
+        self.cursor.read_exact(&mut buf)?;
+        Ok(u32::from_be_bytes(buf))
+    }
+
     pub fn read_bytes_as_slice(&mut self, length: usize) -> Result<&[u8]> {
         let pos = self.cursor.position() as usize;
         if length > self.cursor.get_ref().len() - pos {

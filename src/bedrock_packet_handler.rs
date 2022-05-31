@@ -49,7 +49,29 @@ impl BedrockPacketHandler {
     fn handle_bedrock_packet(&mut self, payload: &[u8]) -> Result<()> {
         let mut reader = BedrockReader::new(payload);
         let id = reader.read_varint_to_u32()?;       
-        debug!("Bedrock packet with id: {} and length including id: {}", id, payload.len());
+        debug!("Bedrock packet with ID: {} and length (including ID): {}", id, payload.len());
+        match id {
+            0x01 => self.handle_login_packet(&mut reader)?,
+            _ => error!("Unknown ID: {}", id),
+        }
         Ok(())
     }
+
+    fn handle_login_packet(&mut self, reader: &mut BedrockReader) -> Result<()> {
+        let protocol_version = reader.read_u32_be()?;
+        let payload_length = reader.read_varint_to_u32()?;
+        debug!("Login packet. Protocol version: {}. Payload length: {}", protocol_version, payload_length);
+
+        let cert_chain_length = reader.read_u32_le()?;
+        let cert_chain = std::str::from_utf8(reader.read_bytes_as_slice(cert_chain_length as usize)?)?;
+        debug!("Cert chain length: {}. Cert chain:\r\n{}", cert_chain_length, cert_chain);
+        // TODO: Parse and verify certificate chain
+        
+        let skin_data_length = reader.read_u32_le()?;
+        let skin_data = std::str::from_utf8(reader.read_bytes_as_slice(skin_data_length as usize)?)?;
+        debug!("Skin length: {}. Skin data:\r\n{}", skin_data_length, skin_data);        
+        // TODO: Parse and handle skin data
+        Ok(())
+    }
+
 }
